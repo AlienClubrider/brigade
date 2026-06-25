@@ -14,7 +14,7 @@ Dependency bots are exempt so their automation keeps working, but regular contri
 
 ## Workflow
 
-1. Fork the repo, then clone the parent repo or set your local `origin` back to the parent (`git@github.com:kunchenguid/brigade.git`).
+1. Fork the repo, then clone the parent repo or set your local `origin` back to the parent (`git@github.com:AlienClubrider/brigade.git`).
 2. Create a branch and make your changes.
 3. Initialize the gate with your fork as the push target: `no-mistakes init --fork-url git@github.com:<you>/brigade.git` (fork routing requires **no-mistakes v1.30.1+**; without a fork, plain `no-mistakes init` still works for maintainers with push access).
 4. Commit your changes.
@@ -47,7 +47,7 @@ See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/star
 
 ## Development
 
-Tracked changes to brigade itself - `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tickets.toml`, `.github/workflows/`, `bin/`, and agent skill files - ship through the `no-mistakes` pipeline on a feature branch and require an explicit merge approval.
+Tracked changes to brigade itself — `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tickets.toml`, `.github/workflows/`, `bin/`, and agent skill files — ship through the `no-mistakes` pipeline on a feature branch and require an explicit merge approval.
 When supervising live line cooks, keep brigade's own long validation or build commands in the background so watcher wakes can still be handled.
 A line cook driving its own `no-mistakes` validation does the opposite: it runs the gate in the foreground and lets each synchronous `no-mistakes axi run` or `no-mistakes axi respond` call return.
 The pipeline owns auto-fix changes; the line cook authorizes them with `no-mistakes axi respond --action fix --findings <ids>` instead of editing or committing while the run is active.
@@ -69,8 +69,8 @@ tests/brigade-bootstrap.test.sh                # bootstrap dependency and featur
 tests/brigade-tangle-guard.test.sh             # primary-checkout tangle detection and spawn/brief isolation tests
 tests/brigade-spawn-batch.test.sh              # batch dispatch and FM_HOME project-path scoping tests
 tests/brigade-update.test.sh                   # fast-forward-only self-update, reread, nudge, dedup, and skip-safety tests
-tests/brigade-sous-chef-lifecycle-e2e.test.sh # persistent sous-chef routing, seeding, backlog handoff, spawn, recovery, teardown, and FM_HOME flow tests
-tests/brigade-sous-chef-safety.test.sh        # sous-chef home safety, idle charter, handoff validation, and teardown boundary tests
+tests/brigade-secondmate-lifecycle-e2e.test.sh # persistent sous-chef routing, seeding, backlog handoff, spawn, recovery, teardown, and FM_HOME flow tests
+tests/brigade-secondmate-safety.test.sh        # sous-chef home safety, idle charter, handoff validation, and teardown boundary tests
 tests/brigade-teardown.test.sh                 # brigade-teardown.sh safety and reminder checks: local-only fork-remote allow, truly-unpushed refuse, merged-to-main allow, no-mistakes regression, tasks-axi reminder, --force override
 [ "$(readlink CLAUDE.md)" = "AGENTS.md" ]
 [ "$(readlink .claude/skills)" = "../.agents/skills" ]

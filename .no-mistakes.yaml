@@ -1,5 +1,27 @@
-# Per-repo no-mistakes overrides.
-# Keep test evidence out of this repo; it stays in a temp dir instead.
+# brigade repo — no-mistakes config.
+# Health Inspection is manually triggered per the brigade plan:
+#   run it when you're ready, not automatically.
+# See docs/health-inspection.md for usage.
+
 test:
+  # Keep test evidence out of the repo; write to a temp dir instead.
   evidence:
     store_in_repo: false
+
+  # Test command for brigade's own toolbelt.
+  # Runs shellcheck + bash syntax check + behavior tests.
+  command: |
+    bash -n bin/*.sh &&
+    shellcheck bin/*.sh tests/*.sh &&
+    for t in tests/*.test.sh; do "$t"; done
+
+lint:
+  # shellcheck is the lint gate for brigade's bash scripts.
+  command: shellcheck bin/*.sh tests/*.sh
+
+# AI review step reads from the Recipe (AGENTS.md) for project conventions.
+# brigade's own AGENTS.md is the Recipe here.
+review:
+  context_files:
+    - AGENTS.md
+    - CONTRIBUTING.md

@@ -117,6 +117,7 @@ Agent-only reference skills live under `.agents/skills/` and are loaded by briga
 - [docs/configuration.md](docs/configuration.md) - environment variables, `FM_HOME`, the files you set, and harness support.
 - [docs/scripts.md](docs/scripts.md) - the `bin/` toolbelt reference.
 - [docs/expeditor.md](docs/expeditor.md) - install and configure dot-agent-deck and falcode-zellij (the Expeditor).
+- [docs/health-inspection.md](docs/health-inspection.md) - no-mistakes setup, per-project config, and running health inspection.
 - [`AGENTS.md`](AGENTS.md) - brigade's full operating manual for the orchestrator agent.
 - [CONTRIBUTING.md](CONTRIBUTING.md) - how to contribute, including the dev/test commands.
 

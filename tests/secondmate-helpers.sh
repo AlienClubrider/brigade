@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# tests/secondmate-helpers.sh - shared fixtures and mocks for the secondmate
-# suites (fm-secondmate-lifecycle-e2e and fm-secondmate-safety).
+# tests/sous-chef-helpers.sh - shared fixtures and mocks for the sous-chef
+# suites (brigade-sous-chef-lifecycle-e2e and brigade-sous-chef-safety).
 #
-# These mocks encode secondmate-lifecycle behavior (fake tmux that logs window
-# ops, fake treehouse that leases/returns homes, fake no-mistakes that records
+# These mocks encode sous-chef-lifecycle behavior (fake tmux that logs window
+# ops, fake worktrunk that leases/returns homes, fake no-mistakes that records
 # init/doctor), so they live here rather than in the generic tests/lib.sh. The
 # generic git/identity/meta primitives come from lib.sh, which this file pulls in.
 
@@ -12,7 +12,7 @@
 
 # A fake tmux (window ops are logged to FM_FAKE_TMUX_LOG, list-windows returns
 # FM_FAKE_TMUX_WINDOW, capture-pane echoes FM_FAKE_TMUX_CAPTURE) plus a fake
-# treehouse (durable lease of FM_FAKE_TREEHOUSE_HOME, recording the lease holder
+# worktrunk (durable lease of FM_FAKE_TREEHOUSE_HOME, recording the lease holder
 # to FM_FAKE_TREEHOUSE_LEASE_FILE; `return` removes the target and lease unless
 # FM_FAKE_TREEHOUSE_RETURN_FAIL is set). Echoes the fakebin dir.
 make_fake_tmux() {
@@ -35,7 +35,7 @@ case "${1:-}" in
     exit 0
     ;;
   display-message)
-    printf 'firstmate\n'
+    printf 'brigade\n'
     exit 0
     ;;
   capture-pane)
@@ -46,10 +46,10 @@ case "${1:-}" in
 esac
 exit 1
 SH
-  cat > "$fakebin/treehouse" <<'SH'
+  cat > "$fakebin/worktrunk" <<'SH'
 #!/usr/bin/env bash
 set -u
-printf 'treehouse %s\n' "$*" >> "${FM_FAKE_TMUX_LOG:-/dev/null}"
+printf 'worktrunk %s\n' "$*" >> "${FM_FAKE_TMUX_LOG:-/dev/null}"
 case "${1:-}" in
   get)
     # Durable lease: print only the worktree path to stdout (banners to stderr),
@@ -91,7 +91,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  chmod +x "$fakebin/treehouse"
+  chmod +x "$fakebin/worktrunk"
   : > "$dir/tmux.log"
   printf '%s\n' "$fakebin"
 }
@@ -135,43 +135,43 @@ SH
   printf '%s\n' "$fakebin"
 }
 
-# Make a directory look like a minimal firstmate home (AGENTS.md + bin/).
-mark_firstmate_home() {
+# Make a directory look like a minimal brigade home (AGENTS.md + bin/).
+mark_brigade_home() {
   local home=$1
   mkdir -p "$home/bin"
-  printf '# Firstmate\n' > "$home/AGENTS.md"
+  printf '# Brigade\n' > "$home/AGENTS.md"
 }
 
-# A firstmate home that is also a real git repo (so it can host detached
+# A brigade home that is also a real git repo (so it can host detached
 # worktrees for teardown/lease tests).
-make_firstmate_git_root() {
+make_brigade_git_root() {
   local home=$1
   mkdir -p "$home/bin"
-  printf '# Firstmate\n' > "$home/AGENTS.md"
-  cat > "$home/bin/fm-guard.sh" <<'SH'
+  printf '# Brigade\n' > "$home/AGENTS.md"
+  cat > "$home/bin/brigade-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-  chmod +x "$home/bin/fm-guard.sh"
+  chmod +x "$home/bin/brigade-guard.sh"
   git -C "$home" init -q
-  git -C "$home" add AGENTS.md bin/fm-guard.sh
-  git -C "$home" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
+  git -C "$home" add AGENTS.md bin/brigade-guard.sh
+  git -C "$home" -c user.name='Brigade Tests' -c user.email='tests@example.invalid' commit -qm initial
 }
 
-# Scaffold a filled secondmate charter brief under <home>/data/<id>/brief.md.
+# Scaffold a filled sous-chef charter brief under <home>/data/<id>/brief.md.
 # Args: home id charter [project...]
-scaffold_secondmate_charter() {
+scaffold_sous-chef_charter() {
   local home=$1 id=$2 charter=$3
   shift 3
-  FM_HOME="$home" FM_SECONDMATE_CHARTER="$charter" "$ROOT/bin/fm-brief.sh" "$id" --secondmate "$@" >/dev/null
+  FM_HOME="$home" FM_SECONDMATE_CHARTER="$charter" "$ROOT/bin/brigade-brief.sh" "$id" --sous-chef "$@" >/dev/null
 }
 
-# Make a directory look like a genuine seeded secondmate home (for handoff tests).
-seed_secondmate_home_marker() {
+# Make a directory look like a genuine seeded sous-chef home (for handoff tests).
+seed_sous-chef_home_marker() {
   local home=$1 id=$2
-  mark_firstmate_home "$home"
+  mark_brigade_home "$home"
   mkdir -p "$home/data"
-  printf '%s\n' "$id" > "$home/.fm-secondmate-home"
+  printf '%s\n' "$id" > "$home/.brigade-sous-chef-home"
 }
 
 # Wait up to <limit> 0.1s ticks while <pid> stays alive. Returns 1 if it dies.

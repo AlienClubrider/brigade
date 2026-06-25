@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/lib.sh - shared primitives for firstmate behavior tests.
+# tests/lib.sh - shared primitives for brigade behavior tests.
 #
 # Source this from a test file:
 #   # shellcheck source=tests/lib.sh
@@ -9,14 +9,14 @@
 # reporters, a self-cleaning temp root, fakebin/PATH-shim helpers, deterministic
 # git identity and fixture builders, state/<id>.meta writers, and the common
 # string/exit-code/file assertions. It deliberately does NOT bundle the
-# behavior-specific fake tmux/treehouse/no-mistakes mocks: those encode terminal
+# behavior-specific fake tmux/worktrunk/no-mistakes mocks: those encode terminal
 # and lifecycle assumptions that differ per suite and belong with the tests that
 # own them.
 #
-# ROOT is exported as the firstmate repo root (this file lives in tests/), so a
+# ROOT is exported as the brigade repo root (this file lives in tests/), so a
 # sourcing test can use "$ROOT/bin/..." without recomputing it.
 
-# Idempotent guard: behavior-area helper files (secondmate-helpers.sh,
+# Idempotent guard: behavior-area helper files (sous-chef-helpers.sh,
 # wake-helpers.sh) source this library for ROOT/fail/pass, and the test that
 # includes them may also source it directly. Re-sourcing must not wipe the
 # registered-cleanup array or reset state.
@@ -58,7 +58,7 @@ fm_test_cleanup() {
 }
 
 fm_test_tmproot() {
-  local prefix=${1:-fm-test} root
+  local prefix=${1:-brigade-test} root
   root=$(mktemp -d "${TMPDIR:-/tmp}/${prefix}.XXXXXX")
   if [ "${#FM_TEST_CLEANUP_DIRS[@]}" -eq 0 ]; then
     trap fm_test_cleanup EXIT
@@ -109,7 +109,7 @@ fm_git_init_commit() {
   git -C "$dir" init -q
   printf '# %s\n' "$(basename "$dir")" > "$dir/README.md"
   git -C "$dir" add README.md
-  git -C "$dir" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
+  git -C "$dir" -c user.name='Brigade Tests' -c user.email='tests@example.invalid' commit -qm initial
 }
 
 # fm_git_add_origin <repo> <bare>: clone <repo> bare into <bare> and register it
@@ -142,19 +142,19 @@ fm_write_meta() {
   done
 }
 
-# fm_write_secondmate_meta <file> <home> [window] [projects]: write the standard
-# kind=secondmate meta block used across the secondmate suites. window defaults
-# to firstmate:fm-<basename-of-home-dir's parent id>? No - window is explicit;
-# defaults to firstmate:fm-domain and projects to alpha to match the common case.
-fm_write_secondmate_meta() {
-  local file=$1 home=$2 window=${3:-firstmate:fm-domain} projects=${4:-alpha}
+# fm_write_sous-chef_meta <file> <home> [window] [projects]: write the standard
+# kind=sous-chef meta block used across the sous-chef suites. window defaults
+# to brigade:brigade-<basename-of-home-dir's parent id>? No - window is explicit;
+# defaults to brigade:brigade-domain and projects to alpha to match the common case.
+fm_write_sous-chef_meta() {
+  local file=$1 home=$2 window=${3:-brigade:brigade-domain} projects=${4:-alpha}
   fm_write_meta "$file" \
     "window=$window" \
     "worktree=$home" \
     "project=$home" \
     "harness=echo" \
-    "kind=secondmate" \
-    "mode=secondmate" \
+    "kind=sous-chef" \
+    "mode=sous-chef" \
     "yolo=off" \
     "home=$home" \
     "projects=$projects"

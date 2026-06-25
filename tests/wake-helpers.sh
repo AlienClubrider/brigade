@@ -10,7 +10,7 @@
 # append_wake <state> <kind> <key> <payload>: append a wake record to the durable
 # queue in a subshell scoped to <state>, using the production wake library.
 append_wake() {
-  local state=$1 kind=$2 key=$3 payload=$4 lib="$ROOT/bin/fm-wake-lib.sh"
+  local state=$1 kind=$2 key=$3 payload=$4 lib="$ROOT/bin/brigade-wake-lib.sh"
   FM_STATE_OVERRIDE="$state" bash -c '
     # shellcheck disable=SC1090,SC1091
     . "$1"

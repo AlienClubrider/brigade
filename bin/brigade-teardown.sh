@@ -467,8 +467,9 @@ if [ -d "$WT" ] && [ "$KIND" != sous-chef ]; then
       git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
     fi
   fi
-  # Remove our hook file so a reused pool worktree cannot fire signals for a dead ticket.
+  # Remove hook files and Recipe so a reused pool worktree cannot fire signals for a dead ticket.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/brigade-turn-end.js"
+  "$FM_ROOT/bin/brigade-recipe.sh" remove "$WT" 2>/dev/null || true
   # Kills remaining processes in the worktree (including the agent), resets, returns
   # to pool. worktrunk resolves the pool from the working directory, so run it from
   # the project.

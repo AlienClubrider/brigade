@@ -390,6 +390,9 @@ if [ "$KIND" != sous-chef ]; then
     echo "error: wt switch --create did not yield an isolated worktree (resolved '$WT'; worktree root '${wt_top:-none}'; primary '$PROJ_ABS'); refusing to launch to avoid tangling the primary checkout. Inspect tab '$TAB_NAME'" >&2
     exit 1
   fi
+
+  # Install Recipe (AGENTS.md) into the worktree if one exists for this project.
+  "$FM_ROOT/bin/brigade-recipe.sh" install "$WT" "$(basename "$PROJ_ABS")" 2>/dev/null || true
 fi
 
 # Per-harness turn-end hook: a file that touches state/<id>.turn-ended when the

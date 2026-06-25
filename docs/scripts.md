@@ -32,3 +32,4 @@ Each file also starts with a short header comment.
 | `brigade-teardown.sh`         | Return the worktree or retire/release a sous-chef home; protects ship work, requires scout reports, checks child work, and prints the backlog reminder |
 | `brigade-harness.sh`          | Detect the running harness; resolve the effective line cook harness                                                  |
 | `brigade-lock.sh`             | Per-home brigade session lock                                                                                     |
+| `brigade-recipe.sh`           | Manage Recipes (`~/.brigade/recipes/<repo>/AGENTS.md`): install into a worktree at spawn, remove at teardown, edit/show/list |

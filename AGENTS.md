@@ -330,6 +330,14 @@ For ship and scout tickets, the script opens a new Zellij tab named `⏳ brigade
 - `✅ brigade-<id>` — done, awaiting your review (on the pass)
 
 Line cooks update the tab name by running: `zellij action rename-tab "⏳ brigade-<id>"` (or `🔴`/`✅`). Add these rename calls to the Recipe (AGENTS.md) for each project so every line cook knows the convention.
+
+**Recipe system** — every line cook spawns with the head chef's personal project conventions. Recipes live at `~/.brigade/recipes/<repo-name>/AGENTS.md`, managed by `bin/brigade-recipe.sh`:
+- `brigade-recipe.sh install <wt> [repo]` — copies the Recipe into the worktree as `AGENTS.md`, adds it to `.git/info/exclude` so it is never staged, committed, or pushed. Called automatically by `brigade-spawn.sh`.
+- `brigade-recipe.sh remove <wt>` — deletes the Recipe copy before the worktree is returned to the pool. Called automatically by `brigade-teardown.sh`.
+- `brigade-recipe.sh edit <repo>` — open or create a Recipe in `$EDITOR`. Seeds a starter template if none exists.
+- `brigade-recipe.sh list` — list all Recipes.
+
+`kitchen.md` (`data/kitchen.md`) stays local to brigade — it holds the head chef's cross-project preferences. The Recipe (`~/.brigade/recipes/<repo>/AGENTS.md`) holds project-specific conventions. Line cooks see both: the Recipe as `AGENTS.md` in their worktree, and the head chef's kitchen preferences from the brief.
 For `kind=sous-chef`, the script creates the same kind of window but starts directly in the persistent home.
 Project worktrees start at detached HEAD on a clean default branch; ship briefs tell the line cook to create its branch, while scout briefs keep the worktree scratch.
 After spawning, peek the pane to confirm the line cook is processing the brief and handle any trust dialog with `harness-adapters`.

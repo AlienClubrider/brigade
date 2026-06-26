@@ -10,7 +10,7 @@
 #   --scout records kind=scout in the ticket's meta (report deliverable, scratch worktree;
 #   see AGENTS.md ticket lifecycle); --sous-chef records kind=sous-chef and launches in a
 #   provisioned brigade home; the default is kind=fire.
-#   Ship/scout spawns refuse to launch after worktrunk get unless the resolved pane
+#   Ship/scout spawns refuse to launch after wt switch --create unless the resolved pane
 #   path is a real git worktree root distinct from the primary project checkout.
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     brigade-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
@@ -314,7 +314,7 @@ else
 fi
 [ -f "$BRIEF" ] || { echo "error: no brief at $BRIEF" >&2; exit 1; }
 
-# Open a new Zellij tab named brigade-<id>, cd into the project, run worktrunk.
+# Open a new Zellij tab named brigade-<id>, cd into the project, run wt.
 # Zellij action new-tab opens in the current working directory; we cd in the
 # launch command itself to land in the right place.
 TAB_NAME="⏳ brigade-$ID"
@@ -353,24 +353,20 @@ if [ "$KIND" != sous-chef ]; then
   for _ in $(seq 1 60); do
     sleep 1
     zellij action dump-screen "$WTFILE" 2>/dev/null || true
-    # Look for Worktrunk's "switched to" or "worktree at" output line
-    candidate=$(grep -oE '[^ ]*/worktrees/[^ ]+' "$WTFILE" 2>/dev/null | tail -1 || true)
+    # wt switch --create prints: "worktree @ <path>"
+    candidate=$(grep -oP '(?<=worktree @ )\S+' "$WTFILE" 2>/dev/null | tail -1 || \
+                grep -oE 'worktree @ [^ ]+' "$WTFILE" 2>/dev/null | sed 's/worktree @ //' | tail -1 || true)
     if [ -n "$candidate" ] && [ -d "$candidate" ]; then
       WT="$candidate"
       break
-    fi
-    # Also check if current shell pwd changed from PROJ_ABS
-    pwd_line=$(grep -oE '\$ $|❯ $|\$ [^$]' "$WTFILE" 2>/dev/null | head -1 || true)
-    if [ -n "$pwd_line" ]; then
-      # Try to get cwd from a ps/lsof approach for the pane's shell
-      :
     fi
   done
   rm -f "$WTFILE"
 
   if [ -z "$WT" ]; then
-    # Last resort: ask wt to print the current worktree path
-    WT=$(cd "$PROJ_ABS" && wt list 2>/dev/null | grep "brigade/$ID" | awk '{print $1}' | head -1 || true)
+    # Last resort: look up the worktree path via git's own porcelain
+    WT=$(git -C "$PROJ_ABS" worktree list --porcelain 2>/dev/null | \
+         awk '/^worktree /{p=$2} /^branch /{if($2=="refs/heads/brigade/'"$ID"'"){print p;exit}}')
   fi
 
   if [ -z "$WT" ]; then

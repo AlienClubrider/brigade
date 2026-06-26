@@ -27,7 +27,7 @@ This is.. a directory that turns any agent into your brigade, and you the head c
 
 - **One liaison** - you talk only to the brigade; it dispatches, supervises, escalates only real decisions, and reports plain outcomes.
 - **A visible kitchen** - every line cook works in its own zellij tab you can watch or type into; the brigade reconciles.
-- **Disposable worktrees** - each ticket runs in a clean [worktrunk](https://github.com/kunchenguid/worktrunk) git worktree, so parallel work on one repo never collides.
+- **Disposable worktrees** - each ticket runs in a clean [worktrunk](https://github.com/max-sixty/worktrunk) (`wt`) git worktree, so parallel work on one repo never collides.
 - **Two ticket shapes** - ship tickets deliver a change; scout tickets investigate, plan, reproduce, or audit and leave a report.
 - **Explicit project modes** - each project ships via `no-mistakes`, `direct-PR`, or `local-only`, with an optional `+yolo` autonomy flag.
 - **Optional sous-chefs** - opt in to persistent domain supervisors that run from isolated brigade homes with their own `FM_HOME`, state, projects, and session lock.
@@ -39,22 +39,29 @@ Full detail on every feature lives in [docs/architecture.md](docs/architecture.m
 
 ## Quick Start
 
-**Requirements:** a verified agent harness (claude, codex, opencode, or pi), git with GitHub auth, and zellij for the kitchen windows.
+**Requirements:** a verified agent harness (claude, codex, opencode, or pi), git with GitHub auth, zellij, and worktrunk (`brew install worktrunk`).
 The brigade detects and offers to install everything else.
 
 ```sh
 gh auth login
-git clone https://github.com/kunchenguid/brigade
-cd brigade && claude   # launch your harness here; AGENTS.md takes over
+brew install zellij worktrunk
+git clone https://github.com/AlienClubrider/brigade
 ```
 
-Then just talk:
+Then start Zellij, navigate to brigade inside it, and launch your harness:
 
 ```sh
-> ahoy! look at my github project xyz, then fix the flaky login test and add dark mode
+zellij
+# inside zellij:
+cd brigade && claude   # or codex, opencode, pi — AGENTS.md takes over
+```
 
-# brigade checks its toolchain (asking your consent before installing anything),
-# clones the project under projects/, and spawns two line cooks in zellij tabs
+Brigade auto-runs its bootstrap check on startup. If anything is missing it tells you and asks before installing. Then just talk:
+
+```sh
+> look at my github project xyz, then fix the flaky login test and add dark mode
+
+# brigade clones the project under projects/ and spawns two line cooks in zellij tabs
 # brigade-fix-login-k3 and brigade-dark-mode-p7.
 # Minutes later:
 
@@ -64,8 +71,8 @@ Then just talk:
 > alright merge it
 ```
 
-Run it inside zellij for the best experience: launching your harness from inside zellij puts every line cook window in your own session, where you can watch the kitchen work in real time or type into any window to intervene.
-Outside zellij, line cooks land in a detached `brigade` session you can attach to.
+Running inside Zellij puts every line cook window in your own session so you can watch the kitchen work in real time or type into any window to intervene.
+Outside Zellij, line cooks land in a detached `brigade` session you can attach to.
 
 ## How It Works
 
@@ -85,7 +92,7 @@ Outside zellij, line cooks land in a detached `brigade` session you can attach t
  │line cook│   │line cook│      │line cook│   one autonomous agent each
  └───┬────┘   └───┬────┘      └───┬────┘
      ▼            ▼               ▼
-  worktrunk worktree or isolated sous-chef home
+  wt worktree or isolated sous-chef home
      │
      ├─ ship: project mode ► PR/local merge ► teardown
      │

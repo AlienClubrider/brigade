@@ -9,8 +9,7 @@
 #          A TANGLE line means the brigade primary checkout (FM_ROOT) is stranded
 #          on a feature branch instead of its default branch - a line cook's work
 #          landed in the primary instead of its own worktree; restore it per the line.
-#          worktrunk is also MISSING when its installed version lacks
-#          "worktrunk get --lease" support.
+#          wt (worktrunk) is MISSING when the binary is not found.
 #          tickets-axi is an OPTIONAL backlog-management capability reported only
 #          when tickets-axi --version is 0.1.1 or newer. It is never a MISSING
 #          line and never prompts an install.
@@ -73,18 +72,14 @@ install_cmd() {
   case "$1" in
     zellij) echo "brew install zellij  # or: cargo install zellij" ;;
     node|gh) echo "brew install $1  # or the platform's package manager" ;;
-    worktrunk) echo "curl -fsSL https://kunchenguid.github.io/worktrunk/install.sh | sh" ;;
+    wt) echo "brew install worktrunk" ;;
     no-mistakes) echo "curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh" ;;
     gh-axi|chrome-devtools-axi) echo "npm install -g $1 && $1 setup hooks" ;;
     *) return 1 ;;
   esac
 }
 
-TOOLS="zellij node gh worktrunk no-mistakes gh-axi chrome-devtools-axi"
-
-worktrunk_supports_lease() {
-  worktrunk get --help 2>&1 | grep -Eq '(^|[^[:alnum:]_-])--lease([^[:alnum:]_-]|$)'
-}
+TOOLS="zellij node gh wt no-mistakes gh-axi chrome-devtools-axi"
 
 if [ "${1:-}" = "install" ]; then
   shift
@@ -101,9 +96,6 @@ fi
 for t in $TOOLS; do
   command -v "$t" >/dev/null || echo "MISSING: $t (install: $(install_cmd "$t"))"
 done
-if command -v worktrunk >/dev/null 2>&1 && ! worktrunk_supports_lease; then
-  echo "MISSING: worktrunk (install: $(install_cmd worktrunk))"
-fi
 gh auth status >/dev/null 2>&1 || echo "NEEDS_GH_AUTH"
 # Worktree-tangle check: the brigade primary checkout (FM_ROOT) must sit on its
 # default branch, not a feature branch (see brigade-tangle-lib.sh). Scoped to the

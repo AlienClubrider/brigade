@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Tear down a finished ticket: return the worktrunk worktree or retire a
-# sous-chef home, close the Zellij tab, clear volatile state, refresh/prune
-# the project's clone for PR-based ship tickets, then print a backlog-refresh
-# reminder.
-# REFUSES if the worktree holds work not on any remote, because worktrunk return
-# hard-resets the worktree and kills its processes. A fork counts as a remote,
-# so upstream-contribution PRs pushed to a fork satisfy this in any mode.
+# Tear down a finished ticket: remove the wt worktree or retire a sous-chef
+# home, close the Zellij tab, clear volatile state, refresh/prune the project's
+# clone for PR-based ship tickets, then print a backlog-refresh reminder.
+# REFUSES if the worktree holds work not on any remote. A fork counts as a
+# remote, so upstream-contribution PRs pushed to a fork satisfy this in any mode.
 # local-only projects additionally accept work merged into the local default
 # branch (brigade performs that merge on the head chef's approval) as a fallback
 # for the common case where there is no remote at all.
@@ -15,10 +13,7 @@
 # Sous-Chefs (kind=sous-chef in meta) are retired explicitly. Normal
 # teardown refuses while their home has in-flight line cook meta files; --force
 # is the approved discard path that prevalidates child removal targets, discards
-# child work, kills child windows, and removes the retired home. Removing a
-# leased home releases its durable worktrunk lease so the pool slot is freed,
-# never left leased forever. If the worktrunk return fails, teardown leaves the
-# leased home and state in place instead of hiding a still-held lease.
+# child work, kills child windows, and removes the retired home.
 # Usage: brigade-teardown.sh <ticket-id> [--force]
 #   --force skips the unpushed-work check for ordinary tickets and discards
 #   sous-chef child work for kind=sous-chef. Only use it when the head chef has
@@ -314,12 +309,12 @@ remove_brigade_home() {
   abs_home_path=$(validate_brigade_home_for_removal "$home" "$label" "$expected_id") || return 1
   [ -n "$abs_home_path" ] || return 0
   if brigade_home_has_worktrunk_slot "$abs_home_path"; then
-    command -v worktrunk >/dev/null 2>&1 || {
-      echo "error: worktrunk command not found; cannot return $label $abs_home_path" >&2
+    command -v wt >/dev/null 2>&1 || {
+      echo "error: wt command not found; cannot remove $label $abs_home_path" >&2
       return 1
     }
-    ( cd "$FM_ROOT" && worktrunk return --force "$abs_home_path" ) || {
-      echo "error: worktrunk return failed for $label $abs_home_path; lease may still be held" >&2
+    ( cd "$FM_ROOT" && wt remove -f -D --foreground "$abs_home_path" ) || {
+      echo "error: wt remove failed for $label $abs_home_path" >&2
       return 1
     }
     return 0
@@ -375,8 +370,8 @@ cleanup_brigade_home_children() {
     elif [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
       validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
       rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/brigade-turn-end.js"
-      if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v worktrunk >/dev/null 2>&1; then
-        ( cd "$child_proj" && worktrunk return --force "$child_wt" ) || safe_rm_rf_child_worktree "$child_wt" "$child_proj"
+      if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v wt >/dev/null 2>&1; then
+        ( cd "$child_proj" && wt remove -f -D --foreground "$child_wt" ) || safe_rm_rf_child_worktree "$child_wt" "$child_proj"
       else
         safe_rm_rf_child_worktree "$child_wt" "$child_proj"
       fi
@@ -470,10 +465,9 @@ if [ -d "$WT" ] && [ "$KIND" != sous-chef ]; then
   # Remove hook files and Recipe so a reused pool worktree cannot fire signals for a dead ticket.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/brigade-turn-end.js"
   "$FM_ROOT/bin/brigade-recipe.sh" remove "$WT" 2>/dev/null || true
-  # Kills remaining processes in the worktree (including the agent), resets, returns
-  # to pool. worktrunk resolves the pool from the working directory, so run it from
-  # the project.
-  ( cd "$PROJ" && worktrunk return --force "$WT" )
+  # Remove the worktree. wt resolves the repo from the working directory, so run
+  # from the project.
+  ( cd "$PROJ" && wt remove -f -D --foreground "$WT" )
 fi
 
 zellij action close-tab --name "$TAB" 2>/dev/null || true

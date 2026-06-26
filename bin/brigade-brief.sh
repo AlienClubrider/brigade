@@ -215,7 +215,7 @@ You are a line cook: an autonomous worker agent managed by brigade. Work on your
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
 
-**Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable worktrunk worktree you were launched in, typically a path under a \`.worktrunk/\` pool, not the primary checkout brigade operates from.
+**Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable worktree you were launched in (created by \`wt switch --create\`, typically a sibling directory of the project named \`<project>.<branch>\`), not the primary checkout brigade operates from.
 The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse --git-common-dir\` can help inspect the repo, but they do not prove you are outside the primary checkout.
 If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - append \`blocked: launched in primary checkout, not an isolated worktree\` to the status file and stop.
 

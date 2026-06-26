@@ -3,11 +3,10 @@
 #
 # Usage:
 #   brigade-home-seed.sh <id> <home|-> <project>...
-#       Provision <home> as an isolated brigade home. If <home> is "-", acquire
-#       a fresh brigade worktree via "worktrunk get --lease", which durably
-#       leases the worktree under the sous-chef <id> so the home survives with
-#       no live process and is never recycled until the lease is released with
-#       "worktrunk return". Projects are cloned
+#       Provision <home> as an isolated brigade home. If <home> is "-", create
+#       a fresh brigade worktree via "wt switch --create brigade-home/<id>",
+#       which persists as a linked git worktree until teardown removes it.
+#       Projects are cloned
 #       from the active home into the sous-chef home's projects/ directory.
 #       That project list is non-exclusive provisioning data. The charter brief
 #       is copied to data/charter.md, newly cloned no-mistakes projects are
@@ -460,16 +459,16 @@ seeded_origin_url() {
 }
 
 acquire_worktrunk_home() {
-  local id=$1 home
-  # Durably lease a brigade worktree from the pool. The lease persists with no
-  # live process and is skipped by later get/prune, so the home survives restarts
-  # until teardown or rollback returns it. worktrunk prints only the worktree path
-  # to stdout (banners go to stderr), so command substitution captures the path.
-  home=$(cd "$FM_ROOT" && worktrunk get --lease --lease-holder "$id") || {
-    echo "error: worktrunk get --lease failed to lease a brigade home" >&2
+  local id=$1 branch="brigade-home/$id" home
+  # Create a dedicated worktree for this sous-chef home. wt switch --create makes
+  # a linked git worktree on a new branch; it persists until teardown removes it.
+  ( cd "$FM_ROOT" && wt switch --create "$branch" --no-cd -y ) >/dev/null 2>&1 || {
+    echo "error: wt switch --create failed to create a brigade home for $id" >&2
     return 1
   }
-  [ -n "$home" ] || { echo "error: worktrunk get --lease did not report a brigade home" >&2; return 1; }
+  home=$(git -C "$FM_ROOT" worktree list --porcelain 2>/dev/null | \
+         awk -v b="refs/heads/brigade-home/$id" '/^worktree /{p=$2} /^branch /{if($2==b){print p;exit}}')
+  [ -n "$home" ] || { echo "error: wt switch --create did not register a brigade home for $id" >&2; return 1; }
   printf '%s\n' "$home"
 }
 
@@ -634,13 +633,13 @@ seed_rollback_target() {
 
 seed_return_worktrunk_home() {
   local home=$1 abs_home
-  abs_home=$(seed_rollback_target "$home" "worktrunk-acquired home") || return 0
-  if ! command -v worktrunk >/dev/null 2>&1; then
-    echo "warning: failed to return worktrunk-acquired home $abs_home during seed rollback; worktrunk command not found" >&2
+  abs_home=$(seed_rollback_target "$home" "wt-created home") || return 0
+  if ! command -v wt >/dev/null 2>&1; then
+    echo "warning: failed to remove wt-created home $abs_home during seed rollback; wt command not found" >&2
     return 0
   fi
-  ( cd "$FM_ROOT" && worktrunk return --force "$abs_home" >/dev/null ) || {
-    echo "warning: failed to return worktrunk-acquired home $abs_home during seed rollback; lease may still be held" >&2
+  ( cd "$FM_ROOT" && wt remove -f -D --foreground "$abs_home" >/dev/null ) || {
+    echo "warning: failed to remove wt-created home $abs_home during seed rollback" >&2
     return 0
   }
 }

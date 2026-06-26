@@ -108,7 +108,6 @@ Otherwise it prints one line per problem or capability fact; handle each:
 
 - `MISSING: <tool> (install: <command>)` - list the missing tools to the head chef with a one-line purpose each plus the printed install commands, wait for consent (one approval may cover the list), then run `bin/brigade-bootstrap.sh install <approved tools...>`.
 - `EXPEDITOR_MISSING: <tool> (install: ...)` - optional Expeditor tools (dot-agent-deck dashboard, falcode-zellij notifications). Surface these to the head chef as a one-time setup suggestion, not a blocker. Refer them to `docs/expeditor.md` for the full install guide.
-  For `worktrunk`, this also covers an installed version whose `worktrunk get` lacks `--lease`; treat it as an upgrade request.
 - `NEEDS_GH_AUTH` - ask the head chef to run `! gh auth login` (interactive; you cannot run it for them).
 - `TANGLE: <remediation>` - the brigade primary checkout (the repo root, `FM_ROOT`) is stranded on a feature branch instead of its default branch: a line cook working brigade-on-itself branched/committed in the primary instead of its own isolated worktree (section 8). The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree. This is the only sanctioned brigade-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.
 - `KITCHEN_HARNESS_OVERRIDE: <name>` - record and use the override silently; surface a harness fact only if it actually blocks work or the head chef asks.
@@ -157,7 +156,7 @@ Reconcile reality with your records before doing anything else:
    Do not sweep every `brigade-*` zellij tab across all sessions during recovery; another brigade home's child panes may share that namespace and are not this home's orphans.
 5. If a recorded direct-report window is missing, reconcile it through its meta as described below.
 6. For meta with no window, reconcile by kind.
-   For ordinary line cooks, check `worktrunk status` in that project, salvage or report.
+   For ordinary line cooks, check `wt list` in that project to verify the worktree exists, salvage or report.
    For `kind=sous-chef`, load `sous-chef-provisioning`, treat it as a dead persistent direct report, and respawn it from recorded meta or the registry entry.
 7. Do not reconstruct a sous-chef's whole tree from the main home.
    The main brigade reconciles only direct reports.
@@ -320,7 +319,7 @@ Dispatch several tickets in one call by passing `id=repo` pairs instead of a sin
 If one pair fails, the rest still run and the batch exits non-zero.
 
 The script resolves the harness (`brigade-harness.sh kitchen`), owns the verified launch templates, resolves the project's delivery mode (`brigade-project-mode.sh`) for ship/scout tickets, and records `harness=`, `kind=`, `mode=`, and `yolo=` in the ticket's meta; a non-flag third argument containing whitespace is treated as a raw launch command (only for verifying new adapters).
-For `kind=sous-chef`, the same script launches in the registered or explicit brigade home instead of running `worktrunk get` for a project, records `home=` and `projects=`, and uses the charter brief as the launch prompt.
+For `kind=sous-chef`, the same script launches in the registered or explicit brigade home instead of running `wt switch --create` for a project, records `home=` and `projects=`, and uses the charter brief as the launch prompt.
 
 For ship and scout tickets, the script opens a new Zellij tab named `⏳ brigade-<id>`, runs `wt switch --create brigade/<id>` to get an isolated worktree, asserts the resolved worktree is a genuine isolated worktree distinct from the primary checkout (aborting the spawn otherwise, to prevent the worktree tangle of section 8), installs the turn-end hook, records `state/<id>.meta` (with `pane=`, `tab=`, `worktree=`), and launches the agent with the brief.
 
@@ -477,11 +476,11 @@ If a guard warning says queued wakes are pending, drain them before doing anythi
 If a guard warning says watcher liveness is stale, arm `bin/brigade-watch-arm.sh` after draining any queued wakes.
 
 `brigade-guard.sh` carries a second, independent alarm in the same bordered ●-marked style: the **worktree-tangle** guard.
-Brigade is a worktrunk-pooled git repo of itself - the primary checkout (the repo root, `FM_ROOT`) and every line cook worktree and sous-chef home are linked worktrees of one repo - and the primary must stay on its default branch.
+Brigade uses `wt` (worktrunk) to manage linked git worktrees - the primary checkout (the repo root, `FM_ROOT`) and every line cook worktree and sous-chef home are linked worktrees of one repo - and the primary must stay on its default branch.
 If a line cook sent to work brigade-on-itself branches or commits in the primary instead of its own isolated worktree, the primary is stranded on a feature branch (the failure this guards against); the guard names the offending branch and prints the non-destructive restore (`git -C <root> checkout <default>`), so the tangle surfaces on the very next fleet action.
 The check is scoped precisely to the primary: detached HEAD (the legitimate resting state of line cook worktrees and sous-chef homes on the default branch) and the default branch itself never alarm; only a named non-default branch checked out in the primary does.
 The same assertion runs at session start as the bootstrap `TANGLE:` line (section 3).
-Two further guards prevent the tangle upstream: `brigade-spawn` refuses to launch unless `worktrunk get` yields a genuine isolated worktree distinct from the primary checkout, and every ship brief's first instruction has the line cook verify it is in its own worktree before branching (section 11).
+Two further guards prevent the tangle upstream: `brigade-spawn` refuses to launch unless `wt switch --create` yields a genuine isolated worktree distinct from the primary checkout, and every ship brief's first instruction has the line cook verify it is in its own worktree before branching (section 11).
 Watcher liveness is not enough if you are foreground-blocked.
 Whenever one or more tickets are in flight, do not run long foreground-blocking operations in your own session.
 This is about brigade's own session: it includes a no-mistakes pipeline brigade runs for this repo, long builds, and any other multi-minute command.
@@ -579,7 +578,7 @@ Map brigade's real backlog operations to the approved commands:
 ## 11. Line cook briefs
 
 Scaffold with `bin/brigade-brief.sh <id> <repo-name>` - it writes `data/<id>/brief.md` with the standard contract (branch setup, status-reporting protocol, push/merge rules, definition of done) and all paths filled in.
-The ship-brief Setup opens with a worktree-isolation assertion ahead of the branch step: the line cook confirms it is in its own worktrunk worktree, not the primary checkout, and stops with `blocked: launched in primary checkout, not an isolated worktree` if not - the upstream half of the worktree-tangle guard (section 8).
+The ship-brief Setup opens with a worktree-isolation assertion ahead of the branch step: the line cook confirms it is in its own `wt`-managed worktree, not the primary checkout, and stops with `blocked: launched in primary checkout, not an isolated worktree` if not - the upstream half of the worktree-tangle guard (section 8).
 For a ship ticket the definition of done is shaped by the project's delivery mode (section 6): `no-mistakes` ends in the harness-appropriate no-mistakes validation pipeline, `direct-PR` has the line cook push and open the PR itself, `local-only` has it stop at "ready in branch" for brigade to review and merge locally.
 The scaffold reads the mode via `brigade-project-mode.sh`, so you do not pass it.
 Ship briefs also include the project-memory contract: run `bin/brigade-ensure-agents-md.sh` when the project already has agent-memory files or when the ticket produced durable project-intrinsic knowledge, then record proportionate learnings in `AGENTS.md`.

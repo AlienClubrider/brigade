@@ -18,7 +18,7 @@ A pull-based guard (`bin/brigade-guard.sh`) warns through supervision tool outpu
 It leads with prominent bordered banners for the tangle and no-watcher cases so they cannot be skimmed past.
 
 A presence-gated sub-supervisor (`bin/brigade-supervise-daemon.sh`) extends this for walk-away supervision: the `/afk` skill activates it, after which it self-handles routine wakes in bash and escalates only head chef-relevant events as one batched, single-line digest (prefixed with an in-band sentinel marker so brigade can tell daemon injections apart from real messages).
-Its injection path shares `bin/brigade-zellij-lib.sh` with `brigade-send.sh`, so dim-ghost-aware and border-aware composer detection plus verified submit retry stay consistent; stalled escalation delivery raises `state/.subsuper-inject-wedged` after `FM_MAX_DEFER_SECS` instead of silently deferring forever.
+Its injection path shares `bin/brigade-wezterm-lib.sh` with `brigade-send.sh`, so border-aware composer detection plus verified submit retry stay consistent; stalled escalation delivery raises `state/.subsuper-inject-wedged` after `FM_MAX_DEFER_SECS` instead of silently deferring forever.
 
 ## Worktrees, not branches in your checkout
 
@@ -41,7 +41,7 @@ Ship tickets change projects and ship by project mode (`no-mistakes`, `direct-PR
 ## Optional sous-chefs
 
 `data/sous-chefs.md` records persistent domain supervisors with natural-language scopes, project clone lists, and home paths.
-`brigade-home-seed.sh` provisions the isolated home, clones the listed PR-based projects into it, initializes newly cloned `no-mistakes` projects, copies the charter to `data/charter.md`, and `brigade-spawn.sh --sous-chef` launches it through the same zellij and status-file path as any direct report.
+`brigade-home-seed.sh` provisions the isolated home, clones the listed PR-based projects into it, initializes newly cloned `no-mistakes` projects, copies the charter to `data/charter.md`, and `brigade-spawn.sh --sous-chef` launches it through the same WezTerm pane and status-file path as any direct report.
 When seeded with `-`, the home is a durable worktrunk lease under the sous-chef id, so it survives with no live process and is not recycled by later `worktrunk get` or pruning.
 Retirement or seed rollback returns the leased home; normal restart/recovery keeps it leased.
 If returning the lease fails during teardown, brigade leaves the route and home intact instead of hiding a still-held lease.
@@ -77,7 +77,7 @@ The mechanics are owned by the `/updatebrigade` skill and brigade's operating ma
 
 ## Restart-proof
 
-All state lives in zellij, status files, local markdown under `data/`, `data/sous-chefs.md`, and persistent sous-chef homes.
+All state lives in WezTerm panes, status files, local markdown under `data/`, `data/sous-chefs.md`, and persistent sous-chef homes.
 Kill the brigade session anytime; the next one reconciles and carries on.
 
 ## Development notes

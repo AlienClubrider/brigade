@@ -17,8 +17,8 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
-# shellcheck source=bin/brigade-zellij-lib.sh
-. "$SCRIPT_DIR/brigade-zellij-lib.sh"
+# shellcheck source=bin/brigade-wezterm-lib.sh
+. "$SCRIPT_DIR/brigade-wezterm-lib.sh"
 
 "$SCRIPT_DIR/brigade-guard.sh" || true
 
@@ -57,17 +57,15 @@ resolve_pane() {
 PANE=$(resolve_pane "$1")
 shift
 
-# Key name → Zellij byte sequence mapping
-# zellij action write accepts decimal byte values
+# Key name → WezTerm send-text byte mapping
 send_key() {
   local key=$1
-  zellij action focus-terminal-pane "$PANE" 2>/dev/null || true
   case "$key" in
-    Escape|ESC|esc)   zellij action write 27 ;;
-    Enter|ENTER)      zellij action write 13 ;;
-    "C-c"|ctrl-c)     zellij action write 3  ;;
-    "C-d"|ctrl-d)     zellij action write 4  ;;
-    Tab)              zellij action write 9  ;;
+    Escape|ESC|esc)   printf '\033'  | wezterm cli send-text --pane-id "$PANE" --no-paste 2>/dev/null ;;
+    Enter|ENTER)      printf '\r'    | wezterm cli send-text --pane-id "$PANE" --no-paste 2>/dev/null ;;
+    "C-c"|ctrl-c)     printf '\003'  | wezterm cli send-text --pane-id "$PANE" --no-paste 2>/dev/null ;;
+    "C-d"|ctrl-d)     printf '\004'  | wezterm cli send-text --pane-id "$PANE" --no-paste 2>/dev/null ;;
+    Tab)              printf '\011'  | wezterm cli send-text --pane-id "$PANE" --no-paste 2>/dev/null ;;
     *)
       echo "error: unknown key '$key'; supported: Escape, Enter, C-c, C-d, Tab" >&2
       exit 1
@@ -84,14 +82,14 @@ else
   retries=${FM_SEND_RETRIES:-3}
   sleep_s=${FM_SEND_SLEEP:-0.4}
   # Type once, submit, verify.
-  verdict=$(fm_zellij_submit_core "$PANE" "$*" "$retries" "$sleep_s" "$settle")
+  verdict=$(fm_wezterm_submit_core "$PANE" "$*" "$retries" "$sleep_s" "$settle")
   case "$verdict" in
     pending)
       echo "error: text not submitted to pane $PANE (Enter swallowed; text left in composer)" >&2
       exit 1
       ;;
     send-failed)
-      echo "error: text not sent to pane $PANE (zellij write-chars failed)" >&2
+      echo "error: text not sent to pane $PANE (wezterm send-text failed)" >&2
       exit 1
       ;;
   esac

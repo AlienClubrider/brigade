@@ -102,14 +102,14 @@ FM_DAEMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$FM_DAEMON_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 
-# Shared tmux pane primitives (busy/composer detection + verify-retry submit).
+# Shared WezTerm pane primitives (busy/composer detection + verify-retry submit).
 # Sourced at top level so BOTH the executed daemon and the unit tests (which
 # source this file for its pure functions) get the corrected composer detection.
-# shellcheck source=bin/brigade-zellij-lib.sh
-. "$FM_DAEMON_DIR/brigade-zellij-lib.sh"
+# shellcheck source=bin/brigade-wezterm-lib.sh
+. "$FM_DAEMON_DIR/brigade-wezterm-lib.sh"
 
 # --- tunables ---------------------------------------------------------------
-FM_SUPERVISOR_TARGET_DEFAULT="brigade:0"
+FM_SUPERVISOR_TARGET_DEFAULT=""
 INJECT_SKIP_DEFAULT="heartbeat"
 STALE_ESCALATE_SECS_DEFAULT=240
 ESCALATE_BATCH_SECS_DEFAULT=90
@@ -120,8 +120,8 @@ HOUSEKEEPING_TICK_DEFAULT=15
 # alarm. The escape hatch makes a guard false-positive visible instead of silent.
 MAX_DEFER_SECS_DEFAULT=300
 HEAD CHEF_RE_DEFAULT='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'
-# Busy footers + composer-empty detection now live in bin/brigade-zellij-lib.sh
-# (FM_TMUX_BUSY_REGEX_DEFAULT / fm_tmux_composer_state); FM_BUSY_REGEX still
+# Busy footers + composer-empty detection now live in bin/brigade-wezterm-lib.sh
+# (FM_WEZTERM_BUSY_REGEX_DEFAULT / fm_wezterm_composer_state); FM_BUSY_REGEX still
 # overrides the busy set here, as before.
 INJECT_FAIL_SLEEP_DEFAULT=30
 INJECT_CONFIRM_RETRIES_DEFAULT=3
@@ -234,22 +234,18 @@ _collapse_newlines() {  # <text>
 
 # Auto-discover the supervisor pane at startup. Priority:
 #   1. FM_SUPERVISOR_TARGET env (explicit override) — caller passes it in.
-#   2. $TMUX_PANE — tmux sets this in every pane's environment; inherited by
-#      the daemon when the /afk skill launches it from brigade's own pane.
-#   3. brigade:0 — legacy fallback (may not resolve if the session is named
-#      differently). The caller logs a warning in that case.
-# Returns the resolved target on stdout; returns 1 if only the fallback is left
-# AND the fallback does not resolve to a live pane.
+#   2. $WEZTERM_PANE — WezTerm sets this in every pane's environment; inherited
+#      by the daemon when the /afk skill launches it from brigade's own pane.
+# Returns the resolved target pane-id on stdout; returns 1 if not resolvable.
 discover_supervisor_target() {
   if [ -n "${FM_SUPERVISOR_TARGET:-}" ]; then
     printf '%s' "$FM_SUPERVISOR_TARGET"
     return 0
   fi
-  if [ -n "${TMUX_PANE:-}" ]; then
-    printf '%s' "$TMUX_PANE"
+  if [ -n "${WEZTERM_PANE:-}" ]; then
+    printf '%s' "$WEZTERM_PANE"
     return 0
   fi
-  printf '%s' "$FM_SUPERVISOR_TARGET_DEFAULT"
   return 1
 }
 
@@ -268,10 +264,19 @@ status_is_head chef_relevant() {
   printf '%s' "$line" | grep -qiE "${FM_HEAD CHEF_RE:-$HEAD CHEF_RE_DEFAULT}"
 }
 
-# ticket id from a tmux window name "<session>:brigade-<id>" -> "<id>"
+# ticket id from a WezTerm pane-id -> "<id>" (via meta file lookup)
 window_to_task() {
-  local w=$1 t
-  t="${w##*:}"; t="${t#brigade-}"; printf '%s' "$t"
+  local pane_id=$1 state meta task pane
+  state="$(_state_root)"
+  for meta in "$state"/*.meta; do
+    [ -e "$meta" ] || continue
+    pane=$(grep '^pane=' "$meta" | cut -d= -f2- || true)
+    [ "$pane" = "$pane_id" ] || continue
+    task=$(basename "$meta" .meta)
+    printf '%s' "$task"; return 0
+  done
+  # Fallback for old meta that used tab=⏳ brigade-<id> naming
+  printf ''
 }
 
 # Decision protocol: every classifier prints exactly one line on stdout of the
@@ -456,8 +461,10 @@ inject_wedge_alarm() {  # <state> <age-seconds>
     printf 'The supervisor pane could not accept an escalation. Buffered items:\n'
     cat "$state/.subsuper-escalations" 2>/dev/null
   } > "$marker" 2>/dev/null || true
-  target="${FM_SUPERVISOR_TARGET:-$FM_SUPERVISOR_TARGET_DEFAULT}"
-  tmux display-message -t "$target" "fm: away-mode escalations WEDGED ${age}s — see $marker" 2>/dev/null || true
+  target="${FM_SUPERVISOR_TARGET:-}"
+  # Best-effort: send a single-line alert to the supervisor pane if reachable.
+  [ -n "$target" ] && printf '%s\r' "fm: away-mode escalations WEDGED ${age}s — see $marker" \
+    | wezterm cli send-text --pane-id "$target" --no-paste 2>/dev/null || true
 }
 
 _oldest_line_age() {  # <buf> -> seconds since the oldest buffered item first arrived (sidecar epoch)
@@ -555,12 +562,16 @@ housekeeping() {  # <state>
   fi
 }
 
-# Find a live brigade-* window whose ticket id matches the given marker key.
+# Find the WezTerm pane-id for the ticket whose stale key matches.
 window_for_task() {  # <task-key>
-  local key=$1 w t
-  for w in $(tmux list-windows -a -F '#{session_name}:#{window_name}' 2>/dev/null | grep ':brigade-' || true); do
-    t=$(window_to_task "$w")
-    [ "$(_stale_key "$t")" = "$key" ] && { printf '%s' "$w"; return 0; }
+  local key=$1 state meta task pane
+  state="$(_state_root)"
+  for meta in "$state"/*.meta; do
+    [ -e "$meta" ] || continue
+    task=$(basename "$meta" .meta)
+    [ "$(_stale_key "$task")" = "$key" ] || continue
+    pane=$(grep '^pane=' "$meta" | cut -d= -f2- || true)
+    [ -n "$pane" ] && { printf '%s' "$pane"; return 0; }
   done
   return 1
 }
@@ -597,8 +608,9 @@ inject_msg() {  # <message> [state]
   # keys off its presence at the start of the message.
   msg=$(_collapse_newlines "$msg")
   msg="${FM_INJECT_MARK}${msg}"
-  target="${FM_SUPERVISOR_TARGET:-$FM_SUPERVISOR_TARGET_DEFAULT}"
-  tmux display-message -p -t "$target" '#{pane_id}' >/dev/null 2>&1 || return 1
+  target="${FM_SUPERVISOR_TARGET:-}"
+  [ -n "$target" ] || { log "inject deferred: no supervisor target (WEZTERM_PANE not set and FM_SUPERVISOR_TARGET empty)"; return 1; }
+  fm_wezterm_pane_alive "$target" 2>/dev/null || return 1
   # (3) Busy-guard: never inject into an in-use pane. Two checks:
   #   a) pane_is_busy: the harness shows a busy footer (agent mid-turn).
   #   b) pane_input_pending: the cursor line has real unsubmitted text after
@@ -618,7 +630,7 @@ inject_msg() {  # <message> [state]
   # count as delivered, so the buffer is preserved (strict) rather than cleared.
   retries=${FM_INJECT_CONFIRM_RETRIES:-$INJECT_CONFIRM_RETRIES_DEFAULT}
   sleep_s=${FM_INJECT_CONFIRM_SLEEP:-$INJECT_CONFIRM_SLEEP_DEFAULT}
-  verdict=$(fm_tmux_submit_core "$target" "$msg" "$retries" "$sleep_s" "$sleep_s")
+  verdict=$(fm_wezterm_submit_core "$target" "$msg" "$retries" "$sleep_s" "$sleep_s")
   if [ "$verdict" = empty ]; then
     return 0  # Composer cleared → submit confirmed.
   fi
@@ -743,35 +755,32 @@ fm_super_main() {
   fi
   echo "$$" > "$PIDFILE"
 
-  # --- auto-discover the supervisor target (the pane running brigade) -----
-  # Priority: FM_SUPERVISOR_TARGET override > $TMUX_PANE (inherited from the
-  # pane that launched the daemon, normally brigade's own) > brigade:0
-  # fallback. Exporting the result into FM_SUPERVISOR_TARGET makes inject_msg
-  # (which reads that env var) use the discovered pane without an extra global.
+  # --- auto-discover the supervisor pane (brigade's own WezTerm pane) ------
+  # Priority: FM_SUPERVISOR_TARGET override > $WEZTERM_PANE (inherited from
+  # the pane that launched the daemon, normally brigade's own pane).
+  # Exporting into FM_SUPERVISOR_TARGET makes inject_msg use the discovered
+  # pane without an extra global.
   local discovered target_source
   target_source="FM_SUPERVISOR_TARGET"
   if [ -z "${FM_SUPERVISOR_TARGET:-}" ]; then
-    if [ -n "${TMUX_PANE:-}" ]; then
-      target_source="TMUX_PANE"
+    if [ -n "${WEZTERM_PANE:-}" ]; then
+      target_source="WEZTERM_PANE"
     else
-      target_source="FALLBACK(brigade:0)"
+      target_source="NONE"
     fi
   fi
   if discovered=$(discover_supervisor_target); then
-    : # resolved cleanly
+    FM_SUPERVISOR_TARGET="$discovered"
   else
-    echo "warn: could not auto-discover supervisor pane (no FM_SUPERVISOR_TARGET or TMUX_PANE); falling back to '$discovered' — verify this is brigade's pane" >&2
+    echo "warn: could not auto-discover supervisor pane (no FM_SUPERVISOR_TARGET or WEZTERM_PANE); escalations will be buffered but not injected until a target is known" >&2
+    FM_SUPERVISOR_TARGET=""
   fi
-  FM_SUPERVISOR_TARGET="$discovered"
   local TARGET="$FM_SUPERVISOR_TARGET"
 
-  # --- validate supervisor target at startup (a missing target is a typo) ---
-  if ! tmux display-message -p -t "$TARGET" '#{pane_id}' >/dev/null 2>&1; then
-    echo "error: supervisor target '$TARGET' does not resolve to a tmux pane; set FM_SUPERVISOR_TARGET" >&2
-    log "startup failed: target '$TARGET' not found"
-    fm_lock_release "$LOCK" 2>/dev/null || true
-    rm -f "$PIDFILE" 2>/dev/null || true
-    exit 1
+  # --- validate supervisor target at startup (a missing target is non-fatal) ---
+  if [ -n "$TARGET" ] && ! fm_wezterm_pane_alive "$TARGET" 2>/dev/null; then
+    echo "warn: supervisor target '$TARGET' is not a live WezTerm pane; escalations will be buffered" >&2
+    log "startup warn: target '$TARGET' not found in WezTerm pane list"
   fi
 
   local afk_status="off"
@@ -832,8 +841,8 @@ fm_super_main() {
     # has nowhere to go, and brigade itself is the consumer of escalations.
     # Catch-up signals persist in state/*.status and flow on the next run, so
     # this delays rather than loses work.
-    if ! tmux display-message -p -t "$TARGET" '#{pane_id}' >/dev/null 2>&1; then
-      log "warn: supervisor target '$TARGET' gone; backing off ${INJECT_FAIL_SLEEP}s, will retry"
+    if [ -z "$TARGET" ] || ! fm_wezterm_pane_alive "$TARGET" 2>/dev/null; then
+      log "warn: supervisor target '${TARGET:-unset}' gone or unknown; backing off ${INJECT_FAIL_SLEEP}s, will retry"
       # Flush is pointless with no pane; preserve any buffered escalations.
       sleep "$INJECT_FAIL_SLEEP"
       continue

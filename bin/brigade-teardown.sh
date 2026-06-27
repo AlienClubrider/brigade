@@ -357,8 +357,11 @@ cleanup_brigade_home_children() {
     child_proj=$(meta_value "$child_meta" project)
     child_kind=$(meta_value "$child_meta" kind)
     [ -n "$child_kind" ] || child_kind=ship
-    if [ -n "$child_t" ]; then
-      zellij action close-tab --name "$child_t" 2>/dev/null || true
+    if [ -n "$child_pane" ]; then
+      wezterm cli kill-pane --pane-id "$child_pane" 2>/dev/null || true
+    elif [ -n "$child_t" ]; then
+      # Fallback for old meta files that recorded tab= but not pane=
+      : # no-op: WezTerm has no tab-name-based kill; pane-id is required
     fi
     if [ "$child_kind" = sous-chef ]; then
       child_home=$(meta_value "$child_meta" home)
@@ -470,7 +473,7 @@ if [ -d "$WT" ] && [ "$KIND" != sous-chef ]; then
   ( cd "$PROJ" && wt remove -f -D --foreground "$WT" )
 fi
 
-zellij action close-tab --name "$TAB" 2>/dev/null || true
+[ -n "$PANE" ] && wezterm cli kill-pane --pane-id "$PANE" 2>/dev/null || true
 if [ "$KIND" = sous-chef ]; then
   [ -n "$HOME_PATH" ] || HOME_PATH=$WT
   remove_brigade_home "$HOME_PATH" "sous-chef home" "$ID"

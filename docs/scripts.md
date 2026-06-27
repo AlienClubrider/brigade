@@ -25,7 +25,7 @@ Each file also starts with a short header comment.
 | `brigade-wake-drain.sh`       | Atomically drain queued watcher wakes before handling supervision work                                              |
 | `brigade-wake-lib.sh`         | Shared durable wake queue and portable lock helpers sourced by the watcher, drain, arm, guard, and daemon          |
 | `brigade-send.sh`             | Send one verified literal line (or `--key Escape`) to a line cook window; exits non-zero when Enter is positively swallowed |
-| `brigade-zellij-lib.sh`         | Shared zellij pane primitives for busy detection, dim-ghost-aware and border-aware composer detection, and verified submit retry |
+| `brigade-wezterm-lib.sh`        | Shared WezTerm pane primitives for busy detection, border-aware composer detection, and verified submit retry |
 | `brigade-peek.sh`             | Print a bounded tail of a line cook pane                                                                             |
 | `brigade-pr-check.sh`         | Record a PR-ready ticket and arm the watcher's merge poll                                                             |
 | `brigade-promote.sh`          | Promote a scout ticket in place so it becomes a protected ship ticket                                                   |

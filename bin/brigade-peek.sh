@@ -49,17 +49,7 @@ resolve_pane() {
 PANE=$(resolve_pane "$1")
 N=${2:-40}
 
-TMPFILE=$(mktemp /tmp/brigade-peek-XXXXXX.txt)
-trap 'rm -f "$TMPFILE"' EXIT
-
-# Focus the target pane and dump its screen contents
-if ! zellij action focus-terminal-pane "$PANE" 2>/dev/null; then
-  echo "error: could not focus pane $PANE" >&2
+if ! wezterm cli get-text --pane-id "$PANE" 2>/dev/null | tail -"$N"; then
+  echo "error: could not get text for pane $PANE" >&2
   exit 1
 fi
-if ! zellij action dump-screen "$TMPFILE" 2>/dev/null; then
-  echo "error: could not dump screen for pane $PANE" >&2
-  exit 1
-fi
-
-tail -"$N" "$TMPFILE"

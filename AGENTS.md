@@ -93,7 +93,7 @@ state/               volatile runtime signals; gitignored
 ```
 
 Ticket ids are short kebab slugs with a random suffix, e.g. `fix-login-k3`.
-The zellij tab for a ticket is always named `brigade-<id>`.
+The WezTerm tab for a ticket is always named `brigade-<id>`.
 
 ## 3. Bootstrap (run at every session start)
 
@@ -107,7 +107,7 @@ Silence means all good: say nothing and move on.
 Otherwise it prints one line per problem or capability fact; handle each:
 
 - `MISSING: <tool> (install: <command>)` - list the missing tools to the head chef with a one-line purpose each plus the printed install commands, wait for consent (one approval may cover the list), then run `bin/brigade-bootstrap.sh install <approved tools...>`.
-- `EXPEDITOR_MISSING: <tool> (install: ...)` - optional Expeditor tools (dot-agent-deck dashboard, falcode-zellij notifications). Surface these to the head chef as a one-time setup suggestion, not a blocker. Refer them to `docs/expeditor.md` for the full install guide.
+- `EXPEDITOR_MISSING: <tool> (install: ...)` - optional Expeditor tools. Surface these to the head chef as a one-time setup suggestion, not a blocker. Refer them to `docs/expeditor.md` for the full install guide.
 - `NEEDS_GH_AUTH` - ask the head chef to run `! gh auth login` (interactive; you cannot run it for them).
 - `TANGLE: <remediation>` - the brigade primary checkout (the repo root, `FM_ROOT`) is stranded on a feature branch instead of its default branch: a line cook working brigade-on-itself branched/committed in the primary instead of its own isolated worktree (section 8). The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree. This is the only sanctioned brigade-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.
 - `KITCHEN_HARNESS_OVERRIDE: <name>` - record and use the override silently; surface a harness fact only if it actually blocks work or the head chef asks.
@@ -152,8 +152,8 @@ Reconcile reality with your records before doing anything else:
    If it refuses because another live session holds the lock, tell the head chef another active session is already managing the work and operate read-only until resolved.
 2. Drain queued wakes with `bin/brigade-wake-drain.sh` and keep the printed records as the first work queue for this recovery turn.
 3. Read `data/backlog.md`, `data/sous-chefs.md` if present, every `state/*.meta`, and every `state/*.status`.
-4. Use the `pane=` (or `tab=`) values from this home's `state/*.meta` files as the live direct-report set, then check those zellij panes.
-   Do not sweep every `brigade-*` zellij tab across all sessions during recovery; another brigade home's child panes may share that namespace and are not this home's orphans.
+4. Use the `pane=` (or `tab=`) values from this home's `state/*.meta` files as the live direct-report set, then check those WezTerm panes.
+   Do not sweep every `brigade-*` WezTerm tab across all windows during recovery; another brigade home's child panes may share that namespace and are not this home's orphans.
 5. If a recorded direct-report window is missing, reconcile it through its meta as described below.
 6. For meta with no window, reconcile by kind.
    For ordinary line cooks, check `wt list` in that project to verify the worktree exists, salvage or report.
@@ -167,7 +167,7 @@ Reconcile reality with your records before doing anything else:
 10. Handle drained wakes, then follow the section 8 watcher checklist; if `state/.afk` exists, the daemon owns the watcher.
 
 A brigade restart must be a non-event.
-All truth lives in zellij, state files, data/backlog.md, data/sous-chefs.md, persistent sous-chef homes, and worktrunk; your conversation memory is a cache.
+All truth lives in WezTerm panes, state files, data/backlog.md, data/sous-chefs.md, persistent sous-chef homes, and worktrunk; your conversation memory is a cache.
 
 ## 6. Project management
 
@@ -321,14 +321,14 @@ If one pair fails, the rest still run and the batch exits non-zero.
 The script resolves the harness (`brigade-harness.sh kitchen`), owns the verified launch templates, resolves the project's delivery mode (`brigade-project-mode.sh`) for ship/scout tickets, and records `harness=`, `kind=`, `mode=`, and `yolo=` in the ticket's meta; a non-flag third argument containing whitespace is treated as a raw launch command (only for verifying new adapters).
 For `kind=sous-chef`, the same script launches in the registered or explicit brigade home instead of running `wt switch --create` for a project, records `home=` and `projects=`, and uses the charter brief as the launch prompt.
 
-For ship and scout tickets, the script opens a new Zellij tab named `⏳ brigade-<id>`, runs `wt switch --create brigade/<id>` to get an isolated worktree, asserts the resolved worktree is a genuine isolated worktree distinct from the primary checkout (aborting the spawn otherwise, to prevent the worktree tangle of section 8), installs the turn-end hook, records `state/<id>.meta` (with `pane=`, `tab=`, `worktree=`), and launches the agent with the brief.
+For ship and scout tickets, the script opens a new WezTerm tab named `⏳ brigade-<id>`, runs `wt switch --create brigade/<id>` to get an isolated worktree, asserts the resolved worktree is a genuine isolated worktree distinct from the primary checkout (aborting the spawn otherwise, to prevent the worktree tangle of section 8), installs the turn-end hook, records `state/<id>.meta` (with `pane=`, `tab=`, `worktree=`), and launches the agent with the brief.
 
-**Tab state convention** — line cooks rename their own Zellij tab to signal state. You read the tab name, not the output stream:
+**Tab state convention** — line cooks rename their own WezTerm tab to signal state. You read the tab name, not the output stream:
 - `⏳ brigade-<id>` — working (default at spawn)
 - `🔴 brigade-<id>` — needs input / stuck (in the weeds)
 - `✅ brigade-<id>` — done, awaiting your review (on the pass)
 
-Line cooks update the tab name by running: `zellij action rename-tab "⏳ brigade-<id>"` (or `🔴`/`✅`). Add these rename calls to the Recipe (AGENTS.md) for each project so every line cook knows the convention.
+Line cooks update the tab name by running: `wezterm cli set-tab-title --pane-id "$WEZTERM_PANE" "⏳ brigade-<id>"` (or `🔴`/`✅`). Add these rename calls to the Recipe (AGENTS.md) for each project so every line cook knows the convention.
 
 **Recipe system** — every line cook spawns with the head chef's personal project conventions. Recipes live at `~/.brigade/recipes/<repo-name>/AGENTS.md`, managed by `bin/brigade-recipe.sh`:
 - `brigade-recipe.sh install <wt> [repo]` — copies the Recipe into the worktree as `AGENTS.md`, adds it to `.git/info/exclude` so it is never staged, committed, or pushed. Called automatically by `brigade-spawn.sh`.
@@ -459,7 +459,7 @@ Heartbeats back off exponentially while they are the only wakes firing (600s dou
 Due per-ticket checks run before signal scanning so chatty line cook status updates cannot starve slow polls like merge detection.
 
 Never rely on hooks or status files alone; the heartbeat review of every window is mandatory and unconditional.
-zellij is the ground truth.
+WezTerm is the ground truth.
 For `kind=sous-chef`, an idle pane is healthy.
 A sous-chef may be sitting on its own watcher with no visible pane changes, so parent supervision uses status writes plus heartbeat review, not pane-staleness.
 `brigade-watch.sh` therefore skips stale-pane wakes for windows whose meta records `kind=sous-chef`.

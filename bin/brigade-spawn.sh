@@ -314,54 +314,48 @@ else
 fi
 [ -f "$BRIEF" ] || { echo "error: no brief at $BRIEF" >&2; exit 1; }
 
-# Open a new Zellij tab named brigade-<id>, cd into the project, run wt.
-# Zellij action new-tab opens in the current working directory; we cd in the
-# launch command itself to land in the right place.
 TAB_NAME="⏳ brigade-$ID"
 
-# Check the tab doesn't already exist
-if zellij action list-tabs 2>/dev/null | grep -qF "$TAB_NAME"; then
-  echo "error: Zellij tab '$TAB_NAME' already exists" >&2
+# Guard against re-spawning a ticket that already has a live meta file.
+if [ -f "$STATE/$ID.meta" ]; then
+  echo "error: ticket '$ID' already has state at $STATE/$ID.meta; tear it down before re-spawning" >&2
   exit 1
 fi
 
-# Open new tab — Zellij sets the tab name and cwd via the action flags.
-# --cwd sets the working directory for the new pane's shell.
-zellij action new-tab --name "$TAB_NAME" --cwd "$PROJ_ABS"
-sleep 0.5  # Let the shell initialise before we send commands
+# Open a new WezTerm pane (tab) in the project directory.
+# wezterm cli spawn --cwd <dir> creates a new tab in the current window and
+# prints the numeric pane-id to stdout. That id is stable for the pane's lifetime
+# and is how brigade targets all subsequent CLI operations (send-text, get-text,
+# kill-pane, set-tab-title) without needing to "focus" the pane first.
+PANE_ID=$(wezterm cli spawn --cwd "$PROJ_ABS" 2>/dev/null) || {
+  echo "error: wezterm cli spawn failed; is WezTerm running and WEZTERM_PANE set?" >&2
+  exit 1
+}
+[ -n "$PANE_ID" ] || { echo "error: wezterm cli spawn returned no pane-id" >&2; exit 1; }
 
-# Get the pane id of the newly focused pane in this tab.
-# Zellij assigns an incrementing numeric pane id; we read it from the focused pane.
-PANE_ID=$(zellij action dump-screen /dev/stderr 2>&1 >/dev/null | head -0; \
-          zellij query --focused-pane 2>/dev/null | grep '^pane_id' | cut -d= -f2 || true)
-# Fallback: if query is unavailable, use a state file written by the tab itself.
-# For now record PANE_ID as "tab:$TAB_NAME" — brigade-peek/send resolve it.
-[ -n "$PANE_ID" ] || PANE_ID="tab:$TAB_NAME"
+# Set the tab title immediately so the fleet dashboard shows ⏳ from the start.
+wezterm cli set-tab-title --pane-id "$PANE_ID" "$TAB_NAME" 2>/dev/null || true
+sleep 0.3  # Let the shell initialise before we send commands
 
 if [ "$KIND" != sous-chef ]; then
   # Use wt switch --create to get a worktree via Worktrunk.
-  # wt switch --create <branch> checks out an isolated worktree on a new branch
-  # named after the ticket id, cd-ing the shell into it.
-  zellij action write-chars "cd $(printf '%s' "$PROJ_ABS" | sed 's/ /\\ /g') && wt switch --create brigade/$ID"
-  sleep 0.3
-  zellij action write 13  # Enter
+  # Send the command as text (no-paste) followed by carriage return (Enter).
+  printf '%s\r' "cd $(printf '%s' "$PROJ_ABS" | sed 's/ /\\ /g') && wt switch --create brigade/$ID" \
+    | wezterm cli send-text --pane-id "$PANE_ID" --no-paste 2>/dev/null || true
 
   # Wait for Worktrunk to finish and the cwd to move to the worktree.
-  # wt switch --create prints the worktree path on stdout; we poll for it.
-  WTFILE=$(mktemp /tmp/brigade-wt-XXXXXX.txt)
+  # wt switch --create prints the worktree path on stdout; we poll the pane text.
   WT=
   for _ in $(seq 1 60); do
     sleep 1
-    zellij action dump-screen "$WTFILE" 2>/dev/null || true
+    pane_text=$(wezterm cli get-text --pane-id "$PANE_ID" 2>/dev/null || true)
     # wt switch --create prints: "worktree @ <path>"
-    candidate=$(grep -oP '(?<=worktree @ )\S+' "$WTFILE" 2>/dev/null | tail -1 || \
-                grep -oE 'worktree @ [^ ]+' "$WTFILE" 2>/dev/null | sed 's/worktree @ //' | tail -1 || true)
+    candidate=$(printf '%s\n' "$pane_text" | grep -oE 'worktree @ [^ ]+' | sed 's/worktree @ //' | tail -1 || true)
     if [ -n "$candidate" ] && [ -d "$candidate" ]; then
       WT="$candidate"
       break
     fi
   done
-  rm -f "$WTFILE"
 
   if [ -z "$WT" ]; then
     # Last resort: look up the worktree path via git's own porcelain
@@ -486,10 +480,7 @@ if [ "$KIND" = sous-chef ]; then
   LAUNCH="FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_HOME=$sq_home $LAUNCH"
 fi
 
-# Focus the pane and launch the agent
-zellij action focus-terminal-pane "$PANE_ID" 2>/dev/null || true
-zellij action write-chars "$LAUNCH"
-sleep 0.3
-zellij action write 13  # Enter
+# Launch the agent in the pane by sending the command text + Enter.
+printf '%s\r' "$LAUNCH" | wezterm cli send-text --pane-id "$PANE_ID" --no-paste 2>/dev/null || true
 
 echo "spawned $ID harness=$HARNESS kind=$KIND mode=$MODE yolo=$YOLO tab=$TAB_NAME pane=$PANE_ID worktree=$WT"

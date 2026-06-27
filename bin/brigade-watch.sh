@@ -240,10 +240,7 @@ EOF
     # A sous-chef idling on its own watcher is healthy. Its parent supervises
     # it through status writes and heartbeats, not pane-idle staleness.
     [ "$(window_kind "$w")" = sous-chef ] && continue
-    _wt=$(mktemp /tmp/brigade-watch-XXXXXX.txt)
-    zellij action focus-terminal-pane "$w" 2>/dev/null && \
-      zellij action dump-screen "$_wt" 2>/dev/null || { rm -f "$_wt"; continue; }
-    tail40=$(tail -40 "$_wt"); rm -f "$_wt"
+    tail40=$(wezterm cli get-text --pane-id "$w" 2>/dev/null | tail -40) || continue
     h=$(printf '%s' "$tail40" | hash_pane)
     key=$(printf '%s' "$w" | tr ':/.' '___')
     hf="$STATE/.hash-$key"

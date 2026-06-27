@@ -45,7 +45,7 @@ Launch mechanics, including the verified command templates, live in [`bin/brigad
 
 ## Toolchain
 
-On first launch the brigade detects what its required toolchain is missing or too old (zellij, node, gh, worktrunk with durable lease support, no-mistakes, gh-axi, chrome-devtools-axi), lists it with the exact install commands, and installs only after you say go.
+On first launch the brigade detects what its required toolchain is missing or too old (wezterm, node, gh, wt, no-mistakes, gh-axi, chrome-devtools-axi), lists it with the exact install commands, and installs only after you say go.
 If compatible `tasks-axi` is already on `PATH`, bootstrap records it as an optional capability fact and brigade uses its verbs for routine backlog mutations; when it is absent or incompatible, brigade keeps hand-editing `data/backlog.md` exactly as before.
 Bootstrap also reports a `TANGLE:` line when `FM_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.
 
@@ -72,12 +72,12 @@ FM_WATCHER_STALE_GRACE=300   # defaults to FM_GUARD_GRACE; seconds a live watche
 FM_SIGNAL_GRACE=30      # seconds to coalesce nearby status and turn-end signals into one wake
 FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT=20   # seconds allowed for bootstrap's best-effort clone refresh
 FM_FLEET_PRUNE=1        # set to 0 to skip pruning local branches whose upstream is gone
-FM_BUSY_REGEX='esc (to )?interrupt|Working\.\.\.'   # busy-pane signatures, shared by watcher and zellij helper
-FM_COMPOSER_IDLE_RE=    # optional empty-composer regex, applied after dim-ghost and border stripping
+FM_BUSY_REGEX='esc (to )?interrupt|Working\.\.\.'   # busy-pane signatures, shared by watcher and WezTerm helper
+FM_COMPOSER_IDLE_RE=    # optional empty-composer regex, applied after border stripping
 FM_SEND_RETRIES=3       # brigade-send Enter-retry attempts after typing the line once
 FM_SEND_SLEEP=0.4       # seconds between brigade-send submit checks
 # sub-supervisor (bin/brigade-supervise-daemon.sh); presence-gated via /afk
-FM_SUPERVISOR_TARGET=brigade:0   # supervisor zellij target (override; auto-discovers from $TMUX_PANE)
+FM_SUPERVISOR_TARGET=            # supervisor WezTerm pane-id (override; auto-discovers from $WEZTERM_PANE)
 FM_INJECT_SKIP=heartbeat           # |-prefixes force-self-handled bypassing classification; empty disables
 FM_HEAD CHEF_RE='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'   # status regex that escalates daemon signal/stale/scan output
 FM_STALE_ESCALATE_SECS=240         # idle seconds before a stale pane escalates as a possible wedge

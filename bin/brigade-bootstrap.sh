@@ -70,7 +70,7 @@ fleet_sync() {
 
 install_cmd() {
   case "$1" in
-    zellij) echo "brew install zellij  # or: cargo install zellij" ;;
+    wezterm) echo "See https://wezterm.org/installation.html for the platform installer" ;;
     node|gh) echo "brew install $1  # or the platform's package manager" ;;
     wt) echo "brew install worktrunk" ;;
     no-mistakes) echo "curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh" ;;
@@ -79,7 +79,7 @@ install_cmd() {
   esac
 }
 
-TOOLS="zellij node gh wt no-mistakes gh-axi chrome-devtools-axi"
+TOOLS="wezterm node gh wt no-mistakes gh-axi chrome-devtools-axi"
 
 if [ "${1:-}" = "install" ]; then
   shift
@@ -109,8 +109,5 @@ kitchen_harness=
 [ -f "$CONFIG/kitchen-harness" ] && kitchen_harness=$(tr -d '[:space:]' < "$CONFIG/kitchen-harness" || true)
 [ -n "$kitchen_harness" ] && [ "$kitchen_harness" != "default" ] && echo "KITCHEN_HARNESS_OVERRIDE: $kitchen_harness"
 fm_tasks_axi_compatible && echo "TASKS_AXI: available"
-# Expeditor tools (optional — kitchen works without them, but you lose the dashboard and notifications).
-command -v dot-agent-deck >/dev/null 2>/dev/null || echo "EXPEDITOR_MISSING: dot-agent-deck (install: brew tap vfarcic/tap && brew install dot-agent-deck && dot-agent-deck hooks install) — see docs/expeditor.md"
-[ -f "${HOME}/.local/state/falcode-zellij/falcode-hook.sh" ] || echo "EXPEDITOR_MISSING: falcode-zellij claude hook (install: see docs/expeditor.md)"
 fleet_sync
 exit 0

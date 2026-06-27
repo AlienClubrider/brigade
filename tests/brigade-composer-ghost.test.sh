@@ -1,227 +1,171 @@
 #!/usr/bin/env bash
-# Ghost-text robustness (incident composer-robust).
+# Composer state tests for WezTerm pane model.
 #
-# claude renders a predicted-next-prompt "suggestion" as DIM/FAINT (ANSI SGR 2)
-# text inside an otherwise-empty composer. A plain pane capture cannot tell that
-# ghost text apart from text a human typed, which made the composer reader see an
-# idle pane as holding pending input. These tests pin two guarantees:
-#   1. fm_tmux_strip_ghost drops dim/faint runs and keeps normal-intensity text.
-#   2. fm_pane_input_pending reads a dim-ghost-only composer as NOT pending, while
-#      still treating real (normal-intensity) text as pending.
-#   3. The human/LLM-facing capture path (brigade-peek.sh) stays PLAIN - no escape codes
-#      ever reach brigade's context.
+# In the WezTerm model, `wezterm cli get-text` returns plain text with no ANSI
+# escape codes. Ghost/autocomplete text is suppressed at the source by the
+# CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false env var set in brigade-spawn.sh.
+#
+# These tests pin two guarantees:
+#   1. fm_wezterm_composer_state correctly classifies empty, pending, and busy
+#      panes from plain text input (no ANSI stripping needed).
+#   2. fm_pane_input_pending correctly detects pending user input.
+#   3. brigade-peek.sh output is always plain (no ANSI escape codes).
 set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-LIB="$ROOT/bin/brigade-zellij-lib.sh"
+LIB="$ROOT/bin/brigade-wezterm-lib.sh"
 PEEK="$ROOT/bin/brigade-peek.sh"
 
-# shellcheck source=bin/brigade-zellij-lib.sh
+# shellcheck source=bin/brigade-wezterm-lib.sh
 . "$LIB"
 
 TMP_ROOT=$(fm_test_tmproot brigade-ghost-tests)
 
-# ESC byte for building styled fixtures and asserting escape-free output.
-ESC=$(printf '\033')
-
-# A fake tmux that serves a styled composer line for the dim-aware reader and an
-# escape-free line for the plain (peek) path. capture-pane returns the styled
-# fixture verbatim WITH -e (mirrors `tmux capture-pane -e`), and the same content
-# with SGR sequences stripped WITHOUT -e (mirrors a plain capture). cursor_y comes
-# from FM_FAKE_CY.
-make_fake_tmux() {  # <dir>
-  local dir=$1 fb="$1/fakebin"
+# Create a fake `wezterm` binary that returns a preset plain-text pane dump.
+# The fake only handles `cli get-text --pane-id <id>` — other subcommands are
+# no-ops so the suite can use the pane-id as a fixture key.
+make_fake_wezterm() {  # <dir>
+  local dir=$1 fb="$dir/fakebin"
   mkdir -p "$fb"
-  cat > "$fb/tmux" <<'SH'
+  cat > "$fb/wezterm" <<'SH'
 #!/usr/bin/env bash
 set -u
-case "${1:-}" in
-  display-message)
-    for a in "$@"; do case "$a" in *cursor_y*) printf '%s\n' "${FM_FAKE_CY:-0}"; exit 0 ;; esac; done
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane)
-    has_e=0
-    for a in "$@"; do [ "$a" = "-e" ] && has_e=1; done
-    f="${FM_FAKE_STYLED:-/dev/null}"
-    if [ "$has_e" = 1 ]; then
-      cat "$f" 2>/dev/null
-    else
-      # Plain capture: drop SGR sequences, as real `tmux capture-pane -p` does.
-      LC_ALL=C awk '{gsub(/\033\[[0-9;]*m/, ""); print}' "$f" 2>/dev/null
-    fi
-    exit 0 ;;
-  list-windows) exit 0 ;;
-esac
-exit 1
+if [ "${1:-}" = cli ] && [ "${2:-}" = get-text ]; then
+  f="${FM_FAKE_PANE_TEXT:-/dev/null}"
+  cat "$f" 2>/dev/null
+  exit 0
+fi
+exit 0
 SH
-  chmod +x "$fb/tmux"
+  chmod +x "$fb/wezterm"
   printf '%s\n' "$fb"
 }
 
-# --- fm_tmux_strip_ghost (pure) ---------------------------------------------
+# --- fm_wezterm_composer_state -----------------------------------------------
 
-test_strip_ghost_drops_dim_keeps_normal() {
-  local out
-  # Dim run between ESC[2m and ESC[0m is dropped; the prompt glyph survives.
-  out=$(printf '\xe2\x9d\xaf \033[2mWhat is the largest country by area?\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "$(printf '\xe2\x9d\xaf ')" ] || fail "dim run not dropped: '$out'"
-  # Normal-intensity text is kept verbatim (no styling at all).
-  out=$(printf '\xe2\x9d\xaf real human text\n' | fm_tmux_strip_ghost)
-  [ "$out" = "$(printf '\xe2\x9d\xaf real human text')" ] || fail "normal text changed: '$out'"
-  # Bold (SGR 1) is normal-intensity, NOT dim - must be kept.
-  out=$(printf '\033[1mbold typed\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "bold typed" ] || fail "bold text wrongly dropped: '$out'"
-  pass "fm_tmux_strip_ghost drops dim/faint runs, keeps normal and bold text"
-}
-
-test_strip_ghost_handles_combined_and_boundary_codes() {
-  local out
-  # Dim combined with a color in one sequence (ESC[2;37m) is still a dim run.
-  out=$(printf '\xe2\x9d\xaf \033[2;37mpredicted\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "$(printf '\xe2\x9d\xaf ')" ] || fail "combined dim+color not dropped: '$out'"
-  # ESC[22m (normal intensity) ends a dim run mid-line; the tail is kept.
-  out=$(printf '\033[2mghost\033[22mREALTAIL\n' | fm_tmux_strip_ghost)
-  [ "$out" = "REALTAIL" ] || fail "ESC[22m did not end the dim run: '$out'"
-  # ESC[0;2m (reset then dim) reads as dim (left-to-right within the sequence).
-  out=$(printf 'keep\033[0;2mdrop\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "keep" ] || fail "reset-then-dim not treated as dim: '$out'"
-  pass "fm_tmux_strip_ghost handles combined SGR, ESC[22m, and reset-then-dim"
-}
-
-test_strip_ghost_keeps_colored_text_with_2_payloads() {
-  local out
-  out=$(printf '\033[38;5;2mgreen typed\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "green typed" ] || fail "8-bit color payload 2 was treated as dim: '$out'"
-  out=$(printf '\033[38;2;1;2;3mtruecolor typed\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "truecolor typed" ] || fail "truecolor payload 2 was treated as dim: '$out'"
-  out=$(printf '\033[48;2;4;5;6mbackground typed\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "background typed" ] || fail "background truecolor payload was treated as dim: '$out'"
-  out=$(printf '\033[58;5;2munderline-color typed\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "underline-color typed" ] || fail "underline color payload 2 was treated as dim: '$out'"
-  out=$(printf '\033[38:2::1:2:3mcolon truecolor typed\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "colon truecolor typed" ] || fail "colon truecolor payload 2 was treated as dim: '$out'"
-  out=$(printf '\033[58::5::2mcolon underline typed\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "colon underline typed" ] || fail "colon underline SGR leaked or dimmed text: '$out'"
-  out=$(printf '\033[4:2mnot dim underline\033[0m\n' | fm_tmux_strip_ghost)
-  [ "$out" = "not dim underline" ] || fail "colon subparameter 2 was treated as dim: '$out'"
-  pass "fm_tmux_strip_ghost keeps colored text with 2 payloads"
-}
-
-# --- fm_pane_input_pending: dim ghost is not pending ------------------------
-
-test_dim_ghost_only_composer_is_not_pending() {
+test_empty_prompt_glyph_is_not_pending() {
   local dir fb capture
-  dir="$TMP_ROOT/ghost-only"; mkdir -p "$dir"
-  fb=$(make_fake_tmux "$dir")
-  capture="$dir/styled.txt"
-  # The exact rendering claude emits: a normal prompt glyph + a DIM predicted prompt.
-  printf '\xe2\x9d\xaf \033[2mWhat is the largest country by area?\033[0m\n' > "$capture"
-  if PATH="$fb:$PATH" FM_FAKE_STYLED="$capture" FM_FAKE_CY=0 \
-     fm_pane_input_pending "fakepane"; then
-    fail "dim ghost-only composer falsely read as pending"
-  fi
-  pass "fm_pane_input_pending: a dim ghost-only composer is NOT pending"
+  dir="$TMP_ROOT/prompt-glyph"; mkdir -p "$dir"
+  fb=$(make_fake_wezterm "$dir")
+  capture="$dir/pane.txt"
+  printf 'some output\n❯ \n' > "$capture"
+  state=$(PATH="$fb:$PATH" FM_FAKE_PANE_TEXT="$capture" fm_wezterm_composer_state "42")
+  [ "$state" = empty ] || fail "bare prompt glyph should be empty, got: $state"
+  pass "fm_wezterm_composer_state: bare prompt glyph (❯) is empty"
 }
 
-test_dim_ghost_inside_bordered_composer_is_not_pending() {
+test_empty_dollar_prompt_is_not_pending() {
   local dir fb capture
-  dir="$TMP_ROOT/ghost-bordered"; mkdir -p "$dir"
-  fb=$(make_fake_tmux "$dir")
-  capture="$dir/styled.txt"
-  # Bordered composer (claude box) holding only dim ghost text.
-  printf '\xe2\x94\x82 \033[2mtry the other approach instead\033[0m \xe2\x94\x82\n' > "$capture"
-  if PATH="$fb:$PATH" FM_FAKE_STYLED="$capture" FM_FAKE_CY=0 \
-     fm_pane_input_pending "fakepane"; then
-    fail "dim ghost in a bordered composer falsely read as pending"
-  fi
-  pass "fm_pane_input_pending: dim ghost inside a bordered composer is NOT pending"
+  dir="$TMP_ROOT/dollar-prompt"; mkdir -p "$dir"
+  fb=$(make_fake_wezterm "$dir")
+  capture="$dir/pane.txt"
+  printf 'some output\n$ \n' > "$capture"
+  state=$(PATH="$fb:$PATH" FM_FAKE_PANE_TEXT="$capture" fm_wezterm_composer_state "42")
+  [ "$state" = empty ] || fail "bare dollar prompt should be empty, got: $state"
+  pass "fm_wezterm_composer_state: bare dollar prompt is empty"
 }
 
-test_normal_text_still_pending() {
+test_busy_footer_is_not_pending() {
+  local dir fb capture
+  dir="$TMP_ROOT/busy-footer"; mkdir -p "$dir"
+  fb=$(make_fake_wezterm "$dir")
+  capture="$dir/pane.txt"
+  printf 'Working on your request...\nesc to interrupt\n' > "$capture"
+  state=$(PATH="$fb:$PATH" FM_FAKE_PANE_TEXT="$capture" fm_wezterm_composer_state "42")
+  [ "$state" = empty ] || fail "busy footer should be empty (not pending), got: $state"
+  pass "fm_wezterm_composer_state: busy footer (esc to interrupt) is empty"
+}
+
+test_real_text_in_composer_is_pending() {
   local dir fb capture
   dir="$TMP_ROOT/real-text"; mkdir -p "$dir"
-  fb=$(make_fake_tmux "$dir")
-  capture="$dir/styled.txt"
-  # Real human text, normal intensity - must still read as pending.
-  printf '\xe2\x9d\xaf fix findings 1 and 3, skip 2\n' > "$capture"
-  PATH="$fb:$PATH" FM_FAKE_STYLED="$capture" FM_FAKE_CY=0 \
-    fm_pane_input_pending "fakepane" \
+  fb=$(make_fake_wezterm "$dir")
+  capture="$dir/pane.txt"
+  printf 'previous output\n❯ fix findings 1 and 3\n' > "$capture"
+  state=$(PATH="$fb:$PATH" FM_FAKE_PANE_TEXT="$capture" fm_wezterm_composer_state "42")
+  [ "$state" = pending ] || fail "real typed text should be pending, got: $state"
+  pass "fm_wezterm_composer_state: real typed text is pending"
+}
+
+test_bordered_empty_composer_is_not_pending() {
+  local dir fb capture
+  dir="$TMP_ROOT/bordered-empty"; mkdir -p "$dir"
+  fb=$(make_fake_wezterm "$dir")
+  capture="$dir/pane.txt"
+  # Claude Code input box with only the prompt glyph inside borders
+  printf 'some output\n│ > │\n' > "$capture"
+  state=$(PATH="$fb:$PATH" FM_FAKE_PANE_TEXT="$capture" fm_wezterm_composer_state "42")
+  [ "$state" = empty ] || fail "bordered empty composer should be empty, got: $state"
+  pass "fm_wezterm_composer_state: bordered empty composer (│ > │) is empty"
+}
+
+test_bordered_real_text_is_pending() {
+  local dir fb capture
+  dir="$TMP_ROOT/bordered-real"; mkdir -p "$dir"
+  fb=$(make_fake_wezterm "$dir")
+  capture="$dir/pane.txt"
+  # Bordered composer with real typed text
+  printf 'some output\n│ fix findings 1 and 3 │\n' > "$capture"
+  state=$(PATH="$fb:$PATH" FM_FAKE_PANE_TEXT="$capture" fm_wezterm_composer_state "42")
+  [ "$state" = pending ] || fail "real text in bordered composer should be pending, got: $state"
+  pass "fm_wezterm_composer_state: real text in bordered composer is pending"
+}
+
+# --- fm_pane_input_pending ---------------------------------------------------
+
+test_pane_input_pending_empty_prompt() {
+  local dir fb capture
+  dir="$TMP_ROOT/pending-empty"; mkdir -p "$dir"
+  fb=$(make_fake_wezterm "$dir")
+  capture="$dir/pane.txt"
+  printf '❯ \n' > "$capture"
+  if PATH="$fb:$PATH" FM_FAKE_PANE_TEXT="$capture" fm_pane_input_pending "42"; then
+    fail "empty prompt was falsely detected as pending"
+  fi
+  pass "fm_pane_input_pending: empty prompt is NOT pending"
+}
+
+test_pane_input_pending_real_text() {
+  local dir fb capture
+  dir="$TMP_ROOT/pending-real"; mkdir -p "$dir"
+  fb=$(make_fake_wezterm "$dir")
+  capture="$dir/pane.txt"
+  printf '❯ deploy the staging environment\n' > "$capture"
+  PATH="$fb:$PATH" FM_FAKE_PANE_TEXT="$capture" fm_pane_input_pending "42" \
     || fail "real typed text was not detected as pending"
-  pass "fm_pane_input_pending: normal-intensity typed text is still pending"
+  pass "fm_pane_input_pending: real typed text is pending"
 }
 
-test_colored_text_with_2_payload_still_pending() {
-  local dir fb capture
-  dir="$TMP_ROOT/colored-text"; mkdir -p "$dir"
-  fb=$(make_fake_tmux "$dir")
-  capture="$dir/styled.txt"
-  printf '\xe2\x9d\xaf \033[38;5;2mgreen typed\033[0m\n' > "$capture"
-  PATH="$fb:$PATH" FM_FAKE_STYLED="$capture" FM_FAKE_CY=0 \
-    fm_pane_input_pending "fakepane" \
-    || fail "8-bit colored typed text was not detected as pending"
-  printf '\xe2\x9d\xaf \033[38;2;1;2;3mtruecolor typed\033[0m\n' > "$capture"
-  PATH="$fb:$PATH" FM_FAKE_STYLED="$capture" FM_FAKE_CY=0 \
-    fm_pane_input_pending "fakepane" \
-    || fail "truecolor typed text was not detected as pending"
-  printf '\xe2\x9d\xaf \033[58;5;2munderline-color typed\033[0m\n' > "$capture"
-  PATH="$fb:$PATH" FM_FAKE_STYLED="$capture" FM_FAKE_CY=0 \
-    fm_pane_input_pending "fakepane" \
-    || fail "underline-colored typed text was not detected as pending"
-  printf '\xe2\x9d\xaf \033[58::5::2mcolon underline typed\033[0m\n' > "$capture"
-  PATH="$fb:$PATH" FM_FAKE_STYLED="$capture" FM_FAKE_CY=0 \
-    fm_pane_input_pending "fakepane" \
-    || fail "colon underline typed text was not detected as pending"
-  pass "fm_pane_input_pending: colored text with 2 payloads is still pending"
-}
-
-test_real_text_with_trailing_ghost_is_pending() {
-  local dir fb capture
-  dir="$TMP_ROOT/mixed"; mkdir -p "$dir"
-  fb=$(make_fake_tmux "$dir")
-  capture="$dir/styled.txt"
-  # A human typed "deploy" and claude appended a dim ghost completion. The real
-  # text must win - the composer is pending.
-  printf '\xe2\x9d\xaf deploy\033[2m the staging environment now\033[0m\n' > "$capture"
-  PATH="$fb:$PATH" FM_FAKE_STYLED="$capture" FM_FAKE_CY=0 \
-    fm_pane_input_pending "fakepane" \
-    || fail "real text with a trailing ghost completion was not detected as pending"
-  pass "fm_pane_input_pending: real text plus a trailing ghost run is still pending"
-}
-
-# --- brigade-peek.sh stays escape-free (LLM-facing path) -------------------------
+# --- brigade-peek.sh: plain output, no ANSI codes ----------------------------
 
 test_peek_output_is_escape_free() {
   local dir fb capture home out
   dir="$TMP_ROOT/peek"; mkdir -p "$dir"
-  fb=$(make_fake_tmux "$dir")
-  capture="$dir/styled.txt"
-  # A pane full of styling, including dim ghost text. The plain peek path must
-  # surface NONE of these escape codes into brigade's context.
-  printf 'normal output line\n\xe2\x9d\xaf \033[2mpredicted next prompt\033[0m\n' > "$capture"
-  # Empty FM_HOME so brigade-guard.sh finds no in-flight ticket and stays silent.
+  fb=$(make_fake_wezterm "$dir")
+  capture="$dir/pane.txt"
+  printf 'normal output line\n❯ some typed text\n' > "$capture"
   home="$dir/home"; mkdir -p "$home/state"
-  # Pass an explicit session:window so resolution needs no metadata.
-  out=$(PATH="$fb:$PATH" FM_HOME="$home" FM_FAKE_STYLED="$capture" \
-        "$PEEK" "sess:win" 2>/dev/null)
+  out=$(PATH="$fb:$PATH" FM_HOME="$home" FM_FAKE_PANE_TEXT="$capture" \
+        "$PEEK" "42" 2>/dev/null)
+  ESC=$(printf '\033')
   case "$out" in
-    *"$ESC"*) fail "brigade-peek surfaced ANSI escape codes into LLM-facing output" ;;
+    *"$ESC"*) fail "brigade-peek surfaced ANSI escape codes in output" ;;
   esac
-  # And it should still carry the real content.
   case "$out" in
-    *"predicted next prompt"*) : ;;
-    *) fail "brigade-peek dropped pane content (expected the ghost text body as plain text)" ;;
+    *"some typed text"*) : ;;
+    *) fail "brigade-peek dropped pane content (expected 'some typed text')" ;;
   esac
-  pass "brigade-peek output is escape-free (no raw -e bytes reach brigade context)"
+  pass "brigade-peek output is escape-free and includes pane content"
 }
 
-test_strip_ghost_drops_dim_keeps_normal
-test_strip_ghost_handles_combined_and_boundary_codes
-test_strip_ghost_keeps_colored_text_with_2_payloads
-test_dim_ghost_only_composer_is_not_pending
-test_dim_ghost_inside_bordered_composer_is_not_pending
-test_normal_text_still_pending
-test_colored_text_with_2_payload_still_pending
-test_real_text_with_trailing_ghost_is_pending
+test_empty_prompt_glyph_is_not_pending
+test_empty_dollar_prompt_is_not_pending
+test_busy_footer_is_not_pending
+test_real_text_in_composer_is_pending
+test_bordered_empty_composer_is_not_pending
+test_bordered_real_text_is_pending
+test_pane_input_pending_empty_prompt
+test_pane_input_pending_real_text
 test_peek_output_is_escape_free

@@ -166,126 +166,131 @@ EOF
 }
 
 test_home_seed_uses_worktrunk_acquired_home() {
-  local home acquired acquired_abs fakebin log lease out
+  local home acquired acquired_abs fakebin log out test_root
   home="$TMP_ROOT/dash-home"
   acquired="$TMP_ROOT/dash-acquired-home"
+  test_root="$TMP_ROOT/dash-test-root"
   mkdir -p "$home/projects" "$home/data" "$home/state"
   fm_git_init_commit "$home/projects/alpha"
   fm_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/dash-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  git clone --quiet "$ROOT" "$acquired"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/dash-fake")
-  log="$TMP_ROOT/dash-fake/tmux.log"
-  lease="$TMP_ROOT/dash-fake/lease"
+  make_brigade_git_root "$test_root"
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/dash-fake")
+  log="$TMP_ROOT/dash-fake/wezterm.log"
 
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TREEHOUSE_HOME="$acquired" FM_FAKE_TMUX_LOG="$log" \
-    FM_FAKE_TREEHOUSE_LEASE_FILE="$lease" \
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$test_root" \
+    FM_FAKE_WT_HOME="$acquired" FM_FAKE_WEZTERM_LOG="$log" \
     FM_SECONDMATE_CHARTER='dash acquired scope' FM_SECONDMATE_SCOPE='dash acquired scope' \
     "$ROOT/bin/brigade-home-seed.sh" dash - alpha) \
-    || fail "seed failed for a worktrunk-acquired home"
+    || fail "seed failed for a wt-acquired home"
   acquired_abs=$(cd "$acquired" && pwd -P)
   printf '%s\n' "$out" | grep -F "home=$acquired_abs" >/dev/null || fail "seed did not report acquired home"
-  grep -F 'worktrunk get --lease --lease-holder dash' "$log" >/dev/null || fail "seed did not durably lease a home under the sous-chef id"
-  [ -f "$lease" ] || fail "seed did not record a worktrunk lease"
-  [ "$(cat "$lease")" = dash ] || fail "seed did not set the lease holder to the sous-chef id"
+  grep -F 'wt switch --create brigade-home/dash' "$log" >/dev/null || fail "seed did not create a wt home for the sous-chef id"
   [ -f "$acquired/.brigade-sous-chef-home" ] || fail "seed did not mark acquired home"
   [ "$(cat "$acquired/.brigade-sous-chef-home")" = dash ] || fail "seed wrote wrong acquired-home marker"
   [ -d "$acquired/projects/alpha/.git" ] || fail "seed did not clone project into acquired home"
   grep -F "home: $acquired_abs" "$home/data/sous-chefs.md" >/dev/null || fail "registry did not record acquired home"
-  pass "home seeding durably leases worktrunk-acquired dash homes under the sous-chef id"
+  pass "home seeding uses wt switch --create to acquire dash homes under the sous-chef id"
 }
 
 test_home_seed_returns_worktrunk_acquired_home_on_assignment_failure() {
-  local home acquired acquired_abs fakebin log err
+  local home acquired acquired_abs fakebin log err test_root
   home="$TMP_ROOT/dash-fail-home"
   acquired="$TMP_ROOT/dash-fail-acquired-home"
+  test_root="$TMP_ROOT/dash-fail-test-root"
   err="$TMP_ROOT/dash-fail.err"
   mkdir -p "$home/projects" "$home/data" "$home/state"
   fm_git_init_commit "$home/projects/alpha"
   fm_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/dash-fail-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  git clone --quiet "$ROOT" "$acquired"
-  acquired_abs=$(cd "$acquired" && pwd -P)
-  printf 'other\n' > "$acquired/.brigade-sous-chef-home"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/dash-fail-fake")
-  log="$TMP_ROOT/dash-fail-fake/tmux.log"
+  # Pre-mark the test root with another owner so the worktree checkout has the marker.
+  make_brigade_git_root "$test_root" "other"
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/dash-fail-fake")
+  log="$TMP_ROOT/dash-fail-fake/wezterm.log"
 
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TREEHOUSE_HOME="$acquired" FM_FAKE_TMUX_LOG="$log" \
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$test_root" \
+    FM_FAKE_WT_HOME="$acquired" FM_FAKE_WEZTERM_LOG="$log" \
     FM_SECONDMATE_CHARTER='dash acquired scope' FM_SECONDMATE_SCOPE='dash acquired scope' \
     "$ROOT/bin/brigade-home-seed.sh" dash - alpha >/dev/null 2>"$err"; then
     fail "seed reused an acquired home marked for another sous-chef"
   fi
+  acquired_abs="$acquired"
   grep -F 'already marked for other' "$err" >/dev/null || fail "seed did not explain acquired marked-home rejection"
-  grep -F "worktrunk return --force $acquired_abs" "$log" >/dev/null \
-    || fail "failed acquired seed did not return the home through worktrunk"
+  grep -F "wt remove -f -D --foreground $acquired_abs" "$log" >/dev/null \
+    || fail "failed acquired seed did not remove the home via wt"
   if [ -f "$home/data/sous-chefs.md" ] && grep -F -- '- dash ' "$home/data/sous-chefs.md" >/dev/null; then
     fail "failed acquired seed left a registry route"
   fi
-  pass "home seeding returns rejected acquired homes through worktrunk"
+  pass "home seeding removes rejected acquired homes via wt remove"
 }
 
 test_home_seed_warns_when_acquired_home_return_fails() {
-  local home acquired acquired_abs fakebin log err lease
+  local home acquired acquired_abs fakebin log err test_root
   home="$TMP_ROOT/dash-return-fail-home"
   acquired="$TMP_ROOT/dash-return-fail-acquired-home"
+  test_root="$TMP_ROOT/dash-return-fail-test-root"
   err="$TMP_ROOT/dash-return-fail.err"
   mkdir -p "$home/projects" "$home/data" "$home/state"
   fm_git_init_commit "$home/projects/alpha"
   fm_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/dash-return-fail-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  git clone --quiet "$ROOT" "$acquired"
-  acquired_abs=$(cd "$acquired" && pwd -P)
-  printf 'other\n' > "$acquired/.brigade-sous-chef-home"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/dash-return-fail-fake")
-  log="$TMP_ROOT/dash-return-fail-fake/tmux.log"
-  lease="$TMP_ROOT/dash-return-fail-fake/lease"
+  make_brigade_git_root "$test_root" "other"
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/dash-return-fail-fake")
+  log="$TMP_ROOT/dash-return-fail-fake/wezterm.log"
 
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TREEHOUSE_HOME="$acquired" FM_FAKE_TMUX_LOG="$log" \
-    FM_FAKE_TREEHOUSE_LEASE_FILE="$lease" FM_FAKE_TREEHOUSE_RETURN_FAIL=1 \
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$test_root" \
+    FM_FAKE_WT_HOME="$acquired" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WT_RETURN_FAIL=1 \
     FM_SECONDMATE_CHARTER='dash acquired scope' FM_SECONDMATE_SCOPE='dash acquired scope' \
     "$ROOT/bin/brigade-home-seed.sh" dash - alpha >/dev/null 2>"$err"; then
     fail "seed reused an acquired home after return failure setup"
   fi
+  acquired_abs="$acquired"
   grep -F 'already marked for other' "$err" >/dev/null || fail "seed did not report original acquired-home rejection"
-  grep -F "warning: failed to return worktrunk-acquired home $acquired_abs during seed rollback" "$err" >/dev/null \
-    || fail "seed rollback did not warn when worktrunk return failed"
-  [ -f "$lease" ] || fail "failed rollback return did not preserve lease evidence"
-  grep -F "worktrunk return --force $acquired_abs" "$log" >/dev/null \
-    || fail "failed rollback did not attempt to return the acquired home"
-  pass "home seed rollback warns when worktrunk-acquired return fails"
+  grep -F "warning: failed to remove wt-created home $acquired_abs during seed rollback" "$err" >/dev/null \
+    || fail "seed rollback did not warn when wt remove failed"
+  grep -F "wt remove -f -D --foreground $acquired_abs" "$log" >/dev/null \
+    || fail "failed rollback did not attempt wt remove"
+  pass "home seed rollback warns when wt-acquired remove fails"
 }
 
 test_home_seed_does_not_return_unsafe_acquired_home() {
-  local home descendant fakebin log err
+  local home descendant fakebin log err test_root
   home="$TMP_ROOT/dash-active-home"
   descendant="$home/data/dash-descendant-home"
+  test_root="$TMP_ROOT/dash-active-test-root"
   err="$TMP_ROOT/dash-active.err"
   mkdir -p "$home/projects" "$home/data" "$home/state"
   fm_git_init_commit "$home/projects/alpha"
   fm_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/dash-active-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/dash-active-fake")
-  log="$TMP_ROOT/dash-active-fake/tmux.log"
+  make_brigade_git_root "$test_root"
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/dash-active-fake")
+  log="$TMP_ROOT/dash-active-fake/wezterm.log"
 
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TREEHOUSE_HOME="$home" FM_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/brigade-home-seed.sh" dash - alpha >/dev/null 2>"$err"; then
-    fail "seed accepted an acquired home matching the active brigade home"
+  # Use explicit path (not -) to test the active-home rejection; wt switch --create
+  # cannot create a worktree at an existing non-empty directory in real life.
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$test_root" \
+    FM_FAKE_WEZTERM_LOG="$log" \
+    "$ROOT/bin/brigade-home-seed.sh" dash "$home" alpha >/dev/null 2>"$err"; then
+    fail "seed accepted an explicit home path matching the active brigade home"
   fi
   grep -F 'sous-chef home cannot be the active brigade home' "$err" >/dev/null \
     || fail "seed did not explain active acquired-home rejection"
-  grep -F "worktrunk return --force" "$log" >/dev/null \
-    && fail "seed returned an unsafe acquired active home through worktrunk"
+  grep -F "wt remove" "$log" >/dev/null \
+    && fail "seed removed an unsafe acquired active home via wt"
   [ -d "$home/projects/alpha" ] || fail "unsafe acquired-home rollback removed the active home"
 
   : > "$log"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TREEHOUSE_HOME="$descendant" FM_FAKE_TMUX_LOG="$log" \
+  mkdir -p "$descendant"
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$test_root" \
+    FM_FAKE_WT_HOME="$descendant" FM_FAKE_WEZTERM_LOG="$log" \
     "$ROOT/bin/brigade-home-seed.sh" dash - alpha >/dev/null 2>"$err"; then
     fail "seed accepted an acquired home inside the active brigade home"
   fi
   grep -F 'sous-chef home cannot be inside the active brigade home' "$err" >/dev/null \
     || fail "seed did not explain active descendant acquired-home rejection"
-  grep -F "worktrunk return --force" "$log" >/dev/null \
-    && fail "seed returned an unsafe acquired active descendant through worktrunk"
+  grep -F "wt remove" "$log" >/dev/null \
+    && fail "seed removed an unsafe acquired active descendant via wt"
   [ -d "$descendant" ] || fail "unsafe acquired-home rollback removed the active descendant"
   pass "home seeding leaves unsafe acquired active homes untouched"
 }
@@ -848,22 +853,22 @@ SH
 exit 0
 SH
   chmod +x "$root_inside/bin/brigade-guard.sh"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/spawn-validate-fake")
-  log="$TMP_ROOT/spawn-validate-fake/tmux.log"
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/spawn-validate-fake")
+  log="$TMP_ROOT/spawn-validate-fake/wezterm.log"
   err="$TMP_ROOT/spawn-validate.err"
 
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/brigade-spawn.sh" domain "$subhome" codex --sous-chef >/dev/null 2>"$err"; then
     fail "sous-chef spawn accepted an unseeded home"
   fi
   grep -F 'not a seeded sous-chef home' "$err" >/dev/null || fail "spawn did not explain missing seed marker"
-  # Canonical ordering proof: validation runs before any tmux side-effect. Every rejection
+  # Canonical ordering proof: validation runs before any pane side-effect. Every rejection
   # reason below shares this one linear pre-launch path, so they each assert only their own
-  # refusal message rather than re-proving "no window created before validation" each time.
-  grep -F 'new-window' "$log" >/dev/null && fail "spawn created a window before validation"
+  # refusal message rather than re-proving "no pane created before validation" each time.
+  grep -F 'spawn ' "$log" >/dev/null && fail "spawn created a pane before validation"
 
   printf 'other\n' > "$wronghome/.brigade-sous-chef-home"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/brigade-spawn.sh" domain "$wronghome" codex --sous-chef >/dev/null 2>"$err"; then
     fail "sous-chef spawn accepted a home marked for another sous-chef"
   fi
@@ -871,27 +876,27 @@ SH
 
   printf 'domain\n' > "$marker_only/.brigade-sous-chef-home"
   printf 'charter\n' > "$marker_only/data/charter.md"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/brigade-spawn.sh" domain "$marker_only" codex --sous-chef >/dev/null 2>"$err"; then
     fail "sous-chef spawn accepted a marked home missing AGENTS.md"
   fi
   grep -F 'not a brigade home (missing AGENTS.md)' "$err" >/dev/null || fail "spawn did not explain missing AGENTS.md"
 
   printf '# Brigade\n' > "$marker_only/AGENTS.md"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/brigade-spawn.sh" domain "$marker_only" codex --sous-chef >/dev/null 2>"$err"; then
     fail "sous-chef spawn accepted a marked home missing bin"
   fi
   grep -F 'not a brigade home (missing bin/)' "$err" >/dev/null || fail "spawn did not explain missing bin"
 
   printf 'domain\n' > "$home/.brigade-sous-chef-home"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/brigade-spawn.sh" domain "$home" codex --sous-chef >/dev/null 2>"$err"; then
     fail "sous-chef spawn accepted the active home"
   fi
   grep -F 'sous-chef home cannot be the active brigade home' "$err" >/dev/null || fail "spawn did not reject active home"
 
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/brigade-spawn.sh" domain "$ROOT" codex --sous-chef >/dev/null 2>"$err"; then
     fail "sous-chef spawn accepted the brigade repo root"
   fi
@@ -899,7 +904,7 @@ SH
 
   printf 'domain\n' > "$active_descendant/.brigade-sous-chef-home"
   printf 'charter\n' > "$active_descendant/data/charter.md"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/brigade-spawn.sh" domain "$active_descendant" codex --sous-chef >/dev/null 2>"$err"; then
     fail "sous-chef spawn accepted a home inside the active brigade home"
   fi
@@ -907,7 +912,7 @@ SH
 
   printf 'domain\n' > "$active_ancestor/.brigade-sous-chef-home"
   printf 'charter\n' > "$active_ancestor/data/charter.md"
-  if PATH="$fakebin:$PATH" FM_HOME="$ancestor_active_home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_HOME="$ancestor_active_home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/brigade-spawn.sh" domain "$active_ancestor" codex --sous-chef >/dev/null 2>"$err"; then
     fail "sous-chef spawn accepted a home containing the active brigade home"
   fi
@@ -915,7 +920,7 @@ SH
 
   printf 'domain\n' > "$root_descendant/.brigade-sous-chef-home"
   printf 'charter\n' > "$root_descendant/data/charter.md"
-  if PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$fakeroot" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$fakeroot" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/brigade-spawn.sh" domain "$root_descendant" codex --sous-chef >/dev/null 2>"$err"; then
     fail "sous-chef spawn accepted a home inside the brigade repo"
   fi
@@ -923,7 +928,7 @@ SH
 
   printf 'domain\n' > "$root_ancestor/.brigade-sous-chef-home"
   printf 'charter\n' > "$root_ancestor/data/charter.md"
-  if PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$root_inside" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$root_inside" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/brigade-spawn.sh" domain "$root_ancestor" codex --sous-chef >/dev/null 2>"$err"; then
     fail "sous-chef spawn accepted a home containing the brigade repo"
   fi
@@ -935,8 +940,8 @@ SH
 test_sous-chef_spawn_refuses_operational_dirs_outside_subhome() {
   local home subhome sink fakebin log err opdir
   home="$TMP_ROOT/spawn-opdir-home"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/spawn-opdir-fake")
-  log="$TMP_ROOT/spawn-opdir-fake/tmux.log"
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/spawn-opdir-fake")
+  log="$TMP_ROOT/spawn-opdir-fake/wezterm.log"
   err="$TMP_ROOT/spawn-opdir.err"
   mkdir -p "$home/data" "$home/state"
 
@@ -953,13 +958,13 @@ test_sous-chef_spawn_refuses_operational_dirs_outside_subhome() {
       printf 'charter\n' > "$sink/charter.md"
     fi
     : > "$log"
-    if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-opdir-fake/pane.txt" \
+    if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/spawn-opdir-fake/pane.txt" \
       "$ROOT/bin/brigade-spawn.sh" domain "$subhome" codex --sous-chef >/dev/null 2>"$err"; then
       fail "sous-chef spawn accepted a subhome with $opdir symlinked outside the subhome"
     fi
     grep -F "sous-chef $opdir directory must resolve inside the sous-chef home" "$err" >/dev/null \
       || fail "spawn did not explain unsafe $opdir directory rejection"
-    grep -F 'new-window' "$log" >/dev/null && fail "spawn created a window before unsafe $opdir directory validation"
+    grep -F 'spawn ' "$log" >/dev/null && fail "spawn created a pane before unsafe $opdir directory validation"
   done
   pass "sous-chef spawn refuses operational directories outside the subhome"
 }
@@ -973,11 +978,11 @@ test_fm_send_refuses_bare_window_without_home_meta() {
   home="$TMP_ROOT/send-home"
   mkdir -p "$home/state"
   touch "$home/state/.last-watcher-beat"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/send-fake")
-  log="$TMP_ROOT/send-fake/tmux.log"
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/send-fake")
+  log="$TMP_ROOT/send-fake/wezterm.log"
   err="$TMP_ROOT/send-fake/send.err"
 
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_WINDOW="other-session:brigade-missing" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/send-fake/pane.txt" \
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_WINDOW="other-session:brigade-missing" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/send-fake/pane.txt" \
     "$ROOT/bin/brigade-send.sh" brigade-missing 'wrong home' >/dev/null 2>"$err"; then
     fail "brigade-send sent to a bare brigade window without home metadata"
   fi
@@ -999,7 +1004,8 @@ test_sous-chef_teardown_retires_empty_home() {
   printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
   subhome_abs=$(cd "$subhome" && pwd -P)
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1010,16 +1016,12 @@ home=$subhome
 projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/teardown-fake")
-  log="$TMP_ROOT/teardown-fake/tmux.log"
-  lease="$TMP_ROOT/teardown-fake/lease"
-  printf 'domain\n' > "$lease"
-  PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$fmroot" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-fake/pane.txt" \
-    FM_FAKE_TREEHOUSE_LEASE_FILE="$lease" \
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/teardown-fake")
+  log="$TMP_ROOT/teardown-fake/wezterm.log"
+  PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$fmroot" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/teardown-fake/pane.txt" \
     "$ROOT/bin/brigade-teardown.sh" domain >/dev/null 2>/dev/null \
     || fail "teardown failed for empty sous-chef home"
-  grep -F "worktrunk return --force $subhome_abs" "$log" >/dev/null || fail "teardown did not release the sous-chef home lease via worktrunk return"
-  [ ! -e "$lease" ] || fail "teardown left the sous-chef home lease held after retirement"
+  grep -F "wt remove -f -D --foreground $subhome_abs" "$log" >/dev/null || fail "teardown did not remove the sous-chef home via wt"
   [ ! -d "$subhome" ] || fail "teardown did not remove the retired sous-chef home"
   [ ! -e "$home/state/domain.meta" ] || fail "teardown did not clear parent meta"
   grep -F -- '- domain ' "$home/data/sous-chefs.md" >/dev/null && fail "teardown did not remove sous-chef registry route"
@@ -1038,7 +1040,8 @@ test_sous-chef_teardown_refuses_failed_leased_home_return() {
   printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
   subhome_abs=$(cd "$subhome" && pwd -P)
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1049,19 +1052,19 @@ home=$subhome
 projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/teardown-return-fail-fake")
-  log="$TMP_ROOT/teardown-return-fail-fake/tmux.log"
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/teardown-return-fail-fake")
+  log="$TMP_ROOT/teardown-return-fail-fake/wezterm.log"
 
   set +e
-  PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$fmroot" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-return-fail-fake/pane.txt" \
-    FM_FAKE_TREEHOUSE_RETURN_FAIL=1 \
+  PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$fmroot" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/teardown-return-fail-fake/pane.txt" \
+    FM_FAKE_WT_RETURN_FAIL=1 \
     "$ROOT/bin/brigade-teardown.sh" domain >/dev/null 2>"$err"
   rc=$?
   set -e
 
-  [ "$rc" -ne 0 ] || fail "teardown succeeded despite failed worktrunk return"
-  grep -F "worktrunk return --force $subhome_abs" "$log" >/dev/null || fail "teardown did not try to return the leased home"
-  grep -F 'worktrunk return failed for sous-chef home' "$err" >/dev/null || fail "teardown did not report failed leased home return"
+  [ "$rc" -ne 0 ] || fail "teardown succeeded despite failed wt remove"
+  grep -F "wt remove -f -D --foreground $subhome_abs" "$log" >/dev/null || fail "teardown did not try wt remove for the sous-chef home"
+  grep -F 'error: wt remove failed for' "$err" >/dev/null || fail "teardown did not report failed wt remove"
   [ -d "$subhome" ] || fail "teardown removed a leased home after return failed"
   [ -e "$home/state/domain.meta" ] || fail "teardown cleared meta after leased home return failed"
   grep -F -- '- domain ' "$home/data/sous-chefs.md" >/dev/null || fail "teardown removed registry route after leased home return failed"
@@ -1077,7 +1080,8 @@ test_sous-chef_teardown_removes_plain_clone_home_without_worktrunk_return() {
   printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
   subhome_abs=$(cd "$subhome" && pwd -P)
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1088,14 +1092,14 @@ home=$subhome
 projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/plain-clone-teardown-fake")
-  log="$TMP_ROOT/plain-clone-teardown-fake/tmux.log"
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/plain-clone-teardown-fake")
+  log="$TMP_ROOT/plain-clone-teardown-fake/wezterm.log"
 
-  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/plain-clone-teardown-fake/pane.txt" \
-    FM_FAKE_TREEHOUSE_RETURN_FAIL=1 \
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/plain-clone-teardown-fake/pane.txt" \
+    FM_FAKE_WT_RETURN_FAIL=1 \
     "$ROOT/bin/brigade-teardown.sh" domain >/dev/null 2>/dev/null \
     || fail "teardown failed for plain-clone sous-chef home"
-  grep -F "worktrunk return --force $subhome_abs" "$log" >/dev/null && fail "teardown tried to return a plain-clone home through worktrunk"
+  grep -F "wt remove" "$log" >/dev/null && fail "teardown tried to wt-remove a plain-clone home"
   [ ! -d "$subhome" ] || fail "teardown did not remove the plain-clone sous-chef home"
   [ ! -e "$home/state/domain.meta" ] || fail "teardown did not clear parent meta for plain-clone home"
   grep -F -- '- domain ' "$home/data/sous-chefs.md" >/dev/null && fail "teardown did not remove plain-clone registry route"
@@ -1112,7 +1116,8 @@ test_sous-chef_force_teardown_discards_child_work() {
   fm_git_worktree "$childproj" "$childwt" force-child
   printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1124,7 +1129,8 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=brigade:brigade-child
+pane=42
+tab=⏳ brigade-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -1132,21 +1138,20 @@ kind=fire
 mode=no-mistakes
 yolo=off
 EOF
-  fakebin=$(make_fake_tmux "$TMP_ROOT/force-teardown-fake")
-  log="$TMP_ROOT/force-teardown-fake/tmux.log"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-teardown-fake/pane.txt" \
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/force-teardown-fake")
+  log="$TMP_ROOT/force-teardown-fake/wezterm.log"
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/force-teardown-fake/pane.txt" \
     "$ROOT/bin/brigade-teardown.sh" domain >/dev/null 2>&1; then
     fail "teardown allowed a sous-chef with in-flight child work"
   fi
-  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-teardown-fake/pane.txt" \
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/force-teardown-fake/pane.txt" \
     "$ROOT/bin/brigade-teardown.sh" domain --force >/dev/null 2>/dev/null \
     || fail "force teardown failed to discard child work"
   [ ! -d "$subhome" ] || fail "force teardown did not remove the retired sous-chef home"
   [ ! -d "$childwt" ] || fail "force teardown did not remove child worktree"
   [ ! -e "$home/state/domain.meta" ] || fail "teardown did not clear parent meta"
   grep -F -- '- domain ' "$home/data/sous-chefs.md" >/dev/null && fail "force teardown did not remove sous-chef registry route"
-  grep -F 'kill-window -t brigade:brigade-child' "$log" >/dev/null || fail "force teardown did not kill child window"
-  grep -F 'kill-window -t brigade:brigade-domain' "$log" >/dev/null || fail "force teardown did not kill parent window"
+  grep -F 'kill-pane --pane-id 42' "$log" >/dev/null || fail "force teardown did not kill child/parent panes"
   pass "sous-chef force teardown discards child work"
 }
 
@@ -1162,7 +1167,8 @@ test_sous-chef_force_teardown_allows_operational_dir_symlinks_inside_home() {
     printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
     ln -s "$target" "$subhome/$opdir"
     cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1173,14 +1179,14 @@ home=$subhome
 projects=alpha
 EOF
     printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
-    fakebin=$(make_fake_tmux "$TMP_ROOT/symlink-inside-teardown-fake-$opdir")
-    log="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/tmux.log"
-    PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/pane.txt" \
+    fakebin=$(make_fake_wezterm "$TMP_ROOT/symlink-inside-teardown-fake-$opdir")
+    log="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/wezterm.log"
+    PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/pane.txt" \
       "$ROOT/bin/brigade-teardown.sh" domain --force >/dev/null 2>"$err" \
       || fail "force teardown refused $opdir symlinked inside the sous-chef home"
     [ ! -e "$subhome" ] || fail "force teardown did not remove subhome with inside $opdir symlink"
     [ ! -e "$home/state/domain.meta" ] || fail "force teardown did not clear parent meta for inside $opdir symlink"
-    grep -F 'kill-window -t brigade:brigade-domain' "$log" >/dev/null || fail "force teardown did not kill parent window for inside $opdir symlink"
+    grep -F 'kill-pane --pane-id 42' "$log" >/dev/null || fail "force teardown did not kill parent pane for inside $opdir symlink"
   done
   pass "force teardown allows operational directory symlinks inside the subhome"
 }
@@ -1195,7 +1201,8 @@ test_sous-chef_force_teardown_refuses_operational_dir_symlink_outside_home() {
   printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
   ln -s "$external_state" "$subhome/state"
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1206,9 +1213,9 @@ home=$subhome
 projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/symlink-state-teardown-fake")
-  log="$TMP_ROOT/symlink-state-teardown-fake/tmux.log"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/symlink-state-teardown-fake/pane.txt" \
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/symlink-state-teardown-fake")
+  log="$TMP_ROOT/symlink-state-teardown-fake/wezterm.log"
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/symlink-state-teardown-fake/pane.txt" \
     "$ROOT/bin/brigade-teardown.sh" domain --force >/dev/null 2>"$err"; then
     fail "force teardown accepted a symlinked sous-chef state directory"
   fi
@@ -1216,7 +1223,7 @@ EOF
   [ -d "$external_state" ] || fail "force teardown removed external symlink target"
   grep -F 'state directory' "$err" >/dev/null || fail "teardown did not explain symlinked state refusal"
   grep -F 'resolves outside the sous-chef home' "$err" >/dev/null || fail "teardown did not identify unsafe state symlink"
-  grep -F 'kill-window' "$log" >/dev/null && fail "teardown killed a window before symlinked state refusal"
+  grep -F 'kill-pane' "$log" >/dev/null && fail "teardown killed a window before symlinked state refusal"
   pass "force teardown refuses operational directory symlinks outside the subhome"
 }
 
@@ -1262,11 +1269,11 @@ SH
     fm_write_sous-chef_meta "$home/state/$tid.meta" "$subhome"
     printf -- '- %s - design domain (home: %s; scope: design domain; projects: alpha; added 2026-06-22)\n' \
       "$tid" "$subhome" > "$home/data/sous-chefs.md"
-    fakebin=$(make_fake_tmux "$base/fake")
-    log="$base/fake/tmux.log"
+    fakebin=$(make_fake_wezterm "$base/fake")
+    log="$base/fake/wezterm.log"
     err="$base/teardown.err"
     if PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$fmroot" FM_HOME="$home" \
-      FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$base/fake/pane.txt" \
+      FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$base/fake/pane.txt" \
       "$ROOT/bin/brigade-teardown.sh" "$tid" >/dev/null 2>"$err"; then
       fail "teardown ($row) accepted a hazardous sous-chef home"
     fi
@@ -1274,7 +1281,7 @@ SH
     [ -d "$subhome" ] || fail "teardown ($row) removed the protected home after refusal"
     [ -e "$home/state/$tid.meta" ] || fail "teardown ($row) cleared the parent meta after refusal"
     grep -F -- "- $tid " "$home/data/sous-chefs.md" >/dev/null || fail "teardown ($row) removed the registry route after refusal"
-    grep -F 'kill-window' "$log" >/dev/null && fail "teardown ($row) killed a window before validation"
+    grep -F 'kill-pane' "$log" >/dev/null && fail "teardown ($row) killed a window before validation"
   done <<'ROWS'
 unmarked|not a seeded sous-chef home
 ancestor|ancestor of the active brigade home
@@ -1294,7 +1301,8 @@ test_sous-chef_teardown_refuses_registered_nested_home() {
   printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
   printf 'nested\n' > "$nested/.brigade-sous-chef-home"
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1305,7 +1313,8 @@ home=$subhome
 projects=alpha
 EOF
   cat > "$home/state/nested.meta" <<EOF
-window=brigade:brigade-nested
+pane=42
+tab=⏳ brigade-nested
 worktree=$nested
 project=$nested
 harness=echo
@@ -1319,9 +1328,9 @@ EOF
 - domain - design domain (home: $subhome; scope: design domain; projects: alpha; added 2026-06-22)
 - nested - nested domain mentions home: $TMP_ROOT/ignored-summary-home (home: $nested; scope: nested domain mentions home: $TMP_ROOT/ignored-scope-home; projects: beta; added 2026-06-22)
 EOF
-  fakebin=$(make_fake_tmux "$TMP_ROOT/nested-teardown-fake")
-  log="$TMP_ROOT/nested-teardown-fake/tmux.log"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/nested-teardown-fake/pane.txt" \
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/nested-teardown-fake")
+  log="$TMP_ROOT/nested-teardown-fake/wezterm.log"
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/nested-teardown-fake/pane.txt" \
     "$ROOT/bin/brigade-teardown.sh" domain >/dev/null 2>"$err"; then
     fail "teardown removed a home containing another registered sous-chef home"
   fi
@@ -1329,7 +1338,7 @@ EOF
   [ -d "$nested" ] || fail "teardown removed registered nested home after refusal"
   [ -e "$home/state/domain.meta" ] || fail "teardown cleared ancestor meta after nested-home refusal"
   [ -e "$home/state/nested.meta" ] || fail "teardown cleared nested meta after nested-home refusal"
-  grep -F 'kill-window' "$log" >/dev/null && fail "teardown killed a window before nested-home refusal"
+  grep -F 'kill-pane' "$log" >/dev/null && fail "teardown killed a window before nested-home refusal"
   grep -F 'contains registered sous-chef home' "$err" >/dev/null || fail "teardown did not explain registered nested-home refusal"
   pass "sous-chef teardown refuses homes containing registered nested homes"
 }
@@ -1344,7 +1353,8 @@ test_sous-chef_teardown_refuses_child_registry_nested_home() {
   printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
   printf 'nested\n' > "$nested/.brigade-sous-chef-home"
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1356,16 +1366,16 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
   printf '%s\n' '- nested - nested domain (home: '"$nested"'; scope: nested domain; projects: beta; added 2026-06-22)' > "$subhome/data/sous-chefs.md"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/child-registry-teardown-fake")
-  log="$TMP_ROOT/child-registry-teardown-fake/tmux.log"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/child-registry-teardown-fake/pane.txt" \
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/child-registry-teardown-fake")
+  log="$TMP_ROOT/child-registry-teardown-fake/wezterm.log"
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/child-registry-teardown-fake/pane.txt" \
     "$ROOT/bin/brigade-teardown.sh" domain >/dev/null 2>"$err"; then
     fail "teardown removed a home containing a child-registry sous-chef home"
   fi
   [ -d "$subhome" ] || fail "teardown removed ancestor home after child-registry refusal"
   [ -d "$nested" ] || fail "teardown removed child-registry nested home after refusal"
   [ -e "$home/state/domain.meta" ] || fail "teardown cleared parent meta after child-registry refusal"
-  grep -F 'kill-window' "$log" >/dev/null && fail "teardown killed a window before child-registry refusal"
+  grep -F 'kill-pane' "$log" >/dev/null && fail "teardown killed a window before child-registry refusal"
   grep -F 'contains registered sous-chef home' "$err" >/dev/null || fail "teardown did not explain child-registry nested-home refusal"
   pass "sous-chef teardown refuses nested homes from the child registry"
 }
@@ -1379,7 +1389,8 @@ test_sous-chef_force_teardown_prevalidates_before_child_cleanup() {
   err="$TMP_ROOT/prevalidate-teardown.err"
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$childproj" "$childwt"
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1391,7 +1402,8 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=brigade:brigade-child
+pane=42
+tab=⏳ brigade-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -1399,9 +1411,9 @@ kind=fire
 mode=no-mistakes
 yolo=off
 EOF
-  fakebin=$(make_fake_tmux "$TMP_ROOT/prevalidate-teardown-fake")
-  log="$TMP_ROOT/prevalidate-teardown-fake/tmux.log"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/prevalidate-teardown-fake/pane.txt" \
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/prevalidate-teardown-fake")
+  log="$TMP_ROOT/prevalidate-teardown-fake/wezterm.log"
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/prevalidate-teardown-fake/pane.txt" \
     "$ROOT/bin/brigade-teardown.sh" domain --force >/dev/null 2>"$err"; then
     fail "force teardown discarded child work before validating subhome"
   fi
@@ -1409,7 +1421,7 @@ EOF
   [ -d "$childwt" ] || fail "force teardown removed child worktree before validation"
   [ -e "$home/state/domain.meta" ] || fail "force teardown cleared parent meta before validation"
   [ -e "$subhome/state/child.meta" ] || fail "force teardown cleared child meta before validation"
-  grep -F 'kill-window' "$log" >/dev/null && fail "force teardown killed windows before subhome validation"
+  grep -F 'kill-pane' "$log" >/dev/null && fail "force teardown killed windows before subhome validation"
   grep -F 'not a seeded sous-chef home' "$err" >/dev/null || fail "force teardown did not explain missing seed marker"
   pass "force teardown validates subhome before child cleanup"
 }
@@ -1424,7 +1436,8 @@ test_sous-chef_force_teardown_refuses_child_active_home_descendant() {
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$childproj"
   printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1436,7 +1449,8 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=brigade:brigade-child
+pane=42
+tab=⏳ brigade-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -1444,9 +1458,9 @@ kind=fire
 mode=no-mistakes
 yolo=off
 EOF
-  fakebin=$(make_fake_tmux "$TMP_ROOT/child-active-descendant-fake")
-  log="$TMP_ROOT/child-active-descendant-fake/tmux.log"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/child-active-descendant-fake/pane.txt" \
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/child-active-descendant-fake")
+  log="$TMP_ROOT/child-active-descendant-fake/wezterm.log"
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/child-active-descendant-fake/pane.txt" \
     "$ROOT/bin/brigade-teardown.sh" domain --force >/dev/null 2>"$err"; then
     fail "force teardown removed a child worktree inside active FM_HOME"
   fi
@@ -1454,7 +1468,7 @@ EOF
   [ -d "$subhome" ] || fail "force teardown removed subhome after child validation refusal"
   [ -e "$home/state/domain.meta" ] || fail "force teardown cleared parent meta after child validation refusal"
   [ -e "$subhome/state/child.meta" ] || fail "force teardown cleared child meta after child validation refusal"
-  grep -F 'kill-window' "$log" >/dev/null && fail "force teardown killed windows before child validation refusal"
+  grep -F 'kill-pane' "$log" >/dev/null && fail "force teardown killed windows before child validation refusal"
   grep -F 'inside the active brigade home' "$err" >/dev/null || fail "force teardown did not explain active home descendant rejection"
   pass "force teardown refuses child worktrees inside the active home"
 }
@@ -1475,7 +1489,8 @@ SH
   chmod +x "$fakeroot/bin/brigade-guard.sh"
   printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1487,7 +1502,8 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=brigade:brigade-child
+pane=42
+tab=⏳ brigade-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -1495,9 +1511,9 @@ kind=fire
 mode=no-mistakes
 yolo=off
 EOF
-  fakebin=$(make_fake_tmux "$TMP_ROOT/child-repo-descendant-fake")
-  log="$TMP_ROOT/child-repo-descendant-fake/tmux.log"
-  if PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$fakeroot" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/child-repo-descendant-fake/pane.txt" \
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/child-repo-descendant-fake")
+  log="$TMP_ROOT/child-repo-descendant-fake/wezterm.log"
+  if PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$fakeroot" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/child-repo-descendant-fake/pane.txt" \
     "$ROOT/bin/brigade-teardown.sh" domain --force >/dev/null 2>"$err"; then
     fail "force teardown removed a child worktree inside FM_ROOT"
   fi
@@ -1505,7 +1521,7 @@ EOF
   [ -d "$subhome" ] || fail "force teardown removed subhome after repo child validation refusal"
   [ -e "$home/state/domain.meta" ] || fail "force teardown cleared parent meta after repo child validation refusal"
   [ -e "$subhome/state/child.meta" ] || fail "force teardown cleared child meta after repo child validation refusal"
-  grep -F 'kill-window' "$log" >/dev/null && fail "force teardown killed windows before repo child validation refusal"
+  grep -F 'kill-pane' "$log" >/dev/null && fail "force teardown killed windows before repo child validation refusal"
   grep -F 'inside the brigade repo' "$err" >/dev/null || fail "force teardown did not explain repo descendant rejection"
   pass "force teardown refuses child worktrees inside the brigade repo"
 }
@@ -1520,7 +1536,8 @@ test_sous-chef_force_teardown_refuses_unregistered_child_worktree() {
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$childproj" "$childwt"
   printf 'domain\n' > "$subhome/.brigade-sous-chef-home"
   cat > "$home/state/domain.meta" <<EOF
-window=brigade:brigade-domain
+pane=42
+tab=⏳ brigade-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1532,7 +1549,8 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/sous-chefs.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=brigade:brigade-child
+pane=42
+tab=⏳ brigade-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -1540,9 +1558,9 @@ kind=fire
 mode=no-mistakes
 yolo=off
 EOF
-  fakebin=$(make_fake_tmux "$TMP_ROOT/unregistered-child-fake")
-  log="$TMP_ROOT/unregistered-child-fake/tmux.log"
-  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/unregistered-child-fake/pane.txt" \
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/unregistered-child-fake")
+  log="$TMP_ROOT/unregistered-child-fake/wezterm.log"
+  if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_WEZTERM_LOG="$log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/unregistered-child-fake/pane.txt" \
     "$ROOT/bin/brigade-teardown.sh" domain --force >/dev/null 2>"$err"; then
     fail "force teardown removed an unregistered child worktree"
   fi
@@ -1550,7 +1568,7 @@ EOF
   [ -d "$subhome" ] || fail "force teardown removed subhome after unregistered child refusal"
   [ -e "$home/state/domain.meta" ] || fail "force teardown cleared parent meta after unregistered child refusal"
   [ -e "$subhome/state/child.meta" ] || fail "force teardown cleared child meta after unregistered child refusal"
-  grep -F 'kill-window' "$log" >/dev/null && fail "force teardown killed windows before unregistered child refusal"
+  grep -F 'kill-pane' "$log" >/dev/null && fail "force teardown killed windows before unregistered child refusal"
   grep -F 'is not a git worktree for' "$err" >/dev/null || fail "force teardown did not explain unregistered child rejection"
   pass "force teardown refuses unregistered child worktree paths"
 }
@@ -1569,9 +1587,9 @@ kind=sous-chef
 home=$TMP_ROOT/watch-subhome
 projects=alpha
 EOF
-  fakebin=$(make_fake_tmux "$TMP_ROOT/watch-fake")
+  fakebin=$(make_fake_wezterm "$TMP_ROOT/watch-fake")
   out="$TMP_ROOT/watch-fake/watch.out"
-  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_LOG="$TMP_ROOT/watch-fake/tmux.log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/watch-fake/pane.txt" \
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_WEZTERM_LOG="$TMP_ROOT/watch-fake/wezterm.log" FM_FAKE_WEZTERM_CAPTURE="$TMP_ROOT/watch-fake/pane.txt" \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$ROOT/bin/brigade-watch.sh" > "$out" &
   pid=$!
   if ! wait_live "$pid" 25; then

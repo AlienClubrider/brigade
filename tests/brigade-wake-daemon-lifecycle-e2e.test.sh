@@ -90,8 +90,9 @@ test_routine_then_terminal_after_restart() {
   sent="$dir/sent.log"; : > "$sent"
   : > "$dir/pane.txt"
   afk_enter "$state"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
-    FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" FM_ESCALATE_BATCH_SECS=0 escalate_flush "$state" \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_PANE_ALIVE=1 FM_FAKE_SENT="$sent" \
+    FM_FAKE_WEZTERM_CAPTURE="$dir/pane.txt" FM_ESCALATE_BATCH_SECS=0 FM_SUPERVISOR_TARGET=99 \
+    escalate_flush "$state" \
     || fail "escalate_flush failed for the buffered digest"
   [ "$(grep -c '\[ENTER\]' "$sent")" -eq 1 ] || fail "buffered digest was not submitted exactly once"
   [ ! -s "$state/.subsuper-escalations" ] || fail "buffer not cleared after a successful flush"
@@ -104,12 +105,13 @@ test_stale_pane_transient_persistent_resume() {
   dir=$(make_supercase wd-stale)
   state="$dir/state"
   fakebin="$dir/fakebin"
-  win="sess:brigade-stale-w2"
+  win="42"
   key=$(printf '%s' "stale-w2" | tr ':/.' '___')
   printf 'working: compiling\n' > "$state/stale-w2.status"
+  printf 'pane=42\ntab=⏳ brigade-stale-w2\n' > "$state/stale-w2.meta"
 
   # Transient: first stale observation self-handles and records a marker.
-  stale_marker_record "$win" "$state"
+  FM_STATE_OVERRIDE="$state" stale_marker_record "$win" "$state"
   case "$(FM_STATE_OVERRIDE="$state" classify_stale "$win" "$state")" in
     self\|*) : ;;
     *) fail "transient stale did not self-handle" ;;
@@ -121,18 +123,18 @@ test_stale_pane_transient_persistent_resume() {
   printf 'idle prompt $\n' > "$dir/pane.txt"
   echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
   : > "$state/.subsuper-escalations" 2>/dev/null || true
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$dir/pane.txt" FM_SUPERVISOR_TARGET=99 \
     FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
   [ -s "$state/.subsuper-escalations" ] || fail "persistent stale did not escalate"
   [ ! -e "$state/.subsuper-stale-$key" ] || fail "stale marker not cleared after escalation"
 
   # Resumed: a fresh transient marker but the pane is now busy -> housekeeping
   # clears the marker without escalating.
-  stale_marker_record "$win" "$state"
+  FM_STATE_OVERRIDE="$state" stale_marker_record "$win" "$state"
   echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
   printf 'Working...\n' > "$dir/pane.txt"
   : > "$state/.subsuper-escalations"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$dir/pane.txt" FM_SUPERVISOR_TARGET=99 \
     FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
   [ ! -e "$state/.subsuper-stale-$key" ] || fail "resumed stale marker was not cleared"
   [ ! -s "$state/.subsuper-escalations" ] || fail "resumed (busy) stale was escalated"

@@ -119,7 +119,7 @@ HOUSEKEEPING_TICK_DEFAULT=15
 # the normal flush path and, if that cannot confirm a submit, raises a loud wedge
 # alarm. The escape hatch makes a guard false-positive visible instead of silent.
 MAX_DEFER_SECS_DEFAULT=300
-HEAD CHEF_RE_DEFAULT='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'
+HEAD_CHEF_RE_DEFAULT='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'
 # Busy footers + composer-empty detection now live in bin/brigade-wezterm-lib.sh
 # (FM_WEZTERM_BUSY_REGEX_DEFAULT / fm_wezterm_composer_state); FM_BUSY_REGEX still
 # overrides the busy set here, as before.
@@ -258,10 +258,10 @@ last_status_line() {
 }
 
 # 0 if the given (last) status line matches a head chef-relevant verb.
-status_is_head chef_relevant() {
+status_is_head_chef_relevant() {
   local line=$1
   [ -n "$line" ] || return 1
-  printf '%s' "$line" | grep -qiE "${FM_HEAD CHEF_RE:-$HEAD CHEF_RE_DEFAULT}"
+  printf '%s' "$line" | grep -qiE "${FM_HEAD_CHEF_RE:-$HEAD_CHEF_RE_DEFAULT}"
 }
 
 # ticket id from a WezTerm pane-id -> "<id>" (via meta file lookup)
@@ -291,7 +291,7 @@ classify_signal() {  # <reason-after-colon> <state>
     last=$(last_status_line "$f")
     [ -n "$last" ] || continue
     distilled="${distilled}$(basename "$f"): ${last} | "
-    status_is_head chef_relevant "$last" || continue
+    status_is_head_chef_relevant "$last" || continue
     rel=1
     # Dedupe against the catch-all scan: if this status was already escalated
     # (seen marker matches), skip escalating again. The seen marker is the
@@ -321,7 +321,7 @@ classify_stale() {  # <window> <state>
   local win=$1 state=$2 task last seen
   task=$(window_to_task "$win")
   last=$(last_status_line "$state/$task.status")
-  if [ -n "$last" ] && status_is_head chef_relevant "$last"; then
+  if [ -n "$last" ] && status_is_head_chef_relevant "$last"; then
     # Dedupe against the signal path: if this status was already escalated
     # (seen marker matches), self-handle to avoid a duplicate in the digest.
     seen="$state/.subsuper-seen-status-$(_stale_key "$task")"
@@ -379,7 +379,7 @@ stale_marker_remove() {  # <window> <state>
 # escalate path and the catch-all scan.
 mark_status_seen() {  # <state> <task> <last-line>
   local state=$1 task=$2 line=$3
-  printf '%s' "$line" > "$state/.subsuper-seen-status-$(_stale_key "$ticket")"
+  printf '%s' "$line" > "$state/.subsuper-seen-status-$(_stale_key "$task")"
 }
 
 # Mark every head chef-relevant status line a per-wake classification escalated as
@@ -393,14 +393,14 @@ mark_escalated_seen() {  # <kind> <arg> <state>
         [ -e "$f" ] || continue
         last=$(last_status_line "$f")
         [ -n "$last" ] || continue
-        status_is_head chef_relevant "$last" || continue
+        status_is_head_chef_relevant "$last" || continue
         task=$(basename "$f"); task="${task%.status}"
         mark_status_seen "$state" "$task" "$last"
       done ;;
     stale)
       task=$(window_to_task "$arg")
       last=$(last_status_line "$state/$task.status")
-      [ -n "$last" ] && status_is_head chef_relevant "$last" \
+      [ -n "$last" ] && status_is_head_chef_relevant "$last" \
         && mark_status_seen "$state" "$task" "$last" ;;
   esac
 }
@@ -551,7 +551,7 @@ housekeeping() {  # <state>
     for f in "$state"/*.status; do
       [ -e "$f" ] || continue
       last=$(last_status_line "$f")
-      status_is_head chef_relevant "$last" || continue
+      status_is_head_chef_relevant "$last" || continue
       task=$(basename "$f"); task="${task%.status}"
       local seen
       seen="$state/.subsuper-seen-status-$(_stale_key "$task")"

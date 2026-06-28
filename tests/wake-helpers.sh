@@ -23,24 +23,19 @@ make_case() {
   dir="$TMP_ROOT/$name"
   fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
-  cat > "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/wezterm" <<'SH'
 #!/usr/bin/env bash
 set -u
-if [ "${1:-}" = "list-windows" ]; then
-  if [ -n "${FM_FAKE_TMUX_WINDOW:-}" ]; then
-    printf '%s\n' "$FM_FAKE_TMUX_WINDOW"
-  fi
-  exit 0
-fi
-if [ "${1:-}" = "capture-pane" ]; then
-  if [ -n "${FM_FAKE_TMUX_CAPTURE:-}" ]; then
-    cat "$FM_FAKE_TMUX_CAPTURE"
-  fi
-  exit 0
-fi
-exit 1
+[ "${1:-}" = cli ] && shift
+case "${1:-}" in
+  get-text)
+    [ -n "${FM_FAKE_WEZTERM_CAPTURE:-}" ] && cat "$FM_FAKE_WEZTERM_CAPTURE"
+    exit 0 ;;
+  list) exit 0 ;;
+  *) exit 0 ;;
+esac
 SH
-  chmod +x "$fakebin/tmux"
+  chmod +x "$fakebin/wezterm"
   printf '%s\n' "$dir"
 }
 
@@ -49,78 +44,35 @@ make_supercase() {
   dir="$TMP_ROOT/$name"
   fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
-  cat > "$fakebin/tmux" <<'SH'
+  # fm_wezterm_composer_state reads the last non-blank line of get-text output.
+  # Tests set FM_FAKE_WEZTERM_CAPTURE to a file whose last non-blank line is
+  # the composer line under test (no cursor_y logic needed).
+  # FM_FAKE_SENT captures sent text (without \r) and [ENTER] markers.
+  cat > "$fakebin/wezterm" <<'SH'
 #!/usr/bin/env bash
 set -u
+[ "${1:-}" = cli ] && shift
 case "${1:-}" in
-  display-message)
-    [ "${FM_FAKE_TMUX_PANE_ALIVE:-1}" = "1" ] || exit 1
-    _print=0
-    # Return cursor_y when the format asks for it (pane_input_pending).
-    for _a in "$@"; do
-      case "$_a" in *cursor_y*) printf '%s\n' "${FM_FAKE_TMUX_CURSOR_Y:-0}"; exit 0 ;; esac
-      [ "$_a" = "-p" ] && _print=1
-    done
-    [ "$_print" = 1 ] && printf 'fakepane\n'
+  get-text)
+    [ -n "${FM_FAKE_WEZTERM_CAPTURE:-}" ] && cat "$FM_FAKE_WEZTERM_CAPTURE" 2>/dev/null
     exit 0 ;;
-  list-windows)
-    [ -n "${FM_FAKE_TMUX_WINDOW:-}" ] && printf '%s\n' "$FM_FAKE_TMUX_WINDOW"
+  send-text)
+    content=$(cat)
+    case "$content" in
+      $'\r') [ -n "${FM_FAKE_SENT:-}" ] && printf '[ENTER]\n' >> "$FM_FAKE_SENT" ;;
+      *)     [ -n "${FM_FAKE_SENT:-}" ] && printf '%s\n' "$content" >> "$FM_FAKE_SENT" ;;
+    esac
     exit 0 ;;
-  capture-pane)
-    # Honor a single-line band capture (-S N -E M, both non-negative) the way the
-    # composer reader now bounds its capture to the cursor row; otherwise (e.g.
-    # fm_pane_is_busy's "-S -40" tail) return the whole capture. -e is accepted and
-    # ignored: this fake emits plain text, which the dim-stripper passes through.
-    _S=""; _E=""; shift
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        -S) _S="${2:-}"; shift 2; continue ;;
-        -E) _E="${2:-}"; shift 2; continue ;;
-        *) shift ;;
-      esac
-    done
-    [ -n "${FM_FAKE_TMUX_CAPTURE:-}" ] || exit 0
-    if [ -n "$_S" ] && [ -n "$_E" ]; then
-      case "$_S$_E" in
-        *[!0-9]*) cat "$FM_FAKE_TMUX_CAPTURE" 2>/dev/null ;;
-        *) sed -n "$((_S + 1)),$((_E + 1))p" "$FM_FAKE_TMUX_CAPTURE" 2>/dev/null ;;
-      esac
-    else
-      cat "$FM_FAKE_TMUX_CAPTURE" 2>/dev/null
+  list)
+    if [ "${FM_FAKE_WEZTERM_PANE_ALIVE:-1}" = "1" ]; then
+      printf 'WINID\tTABID\tPANE\tWORKSPACE\tSIZE\tTITLE\tCWD\n'
+      printf '0\t0\t%s\tdefault\t80x24\t⏳ brigade\t.\n' "${FM_SUPERVISOR_TARGET:-99}"
     fi
     exit 0 ;;
-  send-keys)
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        -l) shift; [ "$#" -gt 0 ] && {
-          printf '%s\n' "$1" >> "${FM_FAKE_TMUX_SENT:-/dev/null}"
-          # Reflect sent text into capture so pane_input_pending sees it as
-          # pending input (text in the composer).
-          [ -n "${FM_FAKE_TMUX_CAPTURE:-}" ] && printf '%s\n' "$1" >> "$FM_FAKE_TMUX_CAPTURE"
-        } ;;
-        Enter)
-          # Optionally swallow Enter (file-based flag) to test the retry path.
-          if [ -n "${FM_FAKE_TMUX_SWALLOW_FILE:-}" ] && [ -f "$FM_FAKE_TMUX_SWALLOW_FILE" ]; then
-            rm -f "$FM_FAKE_TMUX_SWALLOW_FILE"
-          else
-            printf '[ENTER]\n' >> "${FM_FAKE_TMUX_SENT:-/dev/null}"
-            # Enter submits: clear the last line (the typed text) from the
-            # capture, simulating the composer being cleared on submit.
-            if [ -n "${FM_FAKE_TMUX_CAPTURE:-}" ] && [ -s "$FM_FAKE_TMUX_CAPTURE" ]; then
-              _tmp=$(mktemp 2>/dev/null) || _tmp="${FM_FAKE_TMUX_CAPTURE}.tmp"
-              sed '$d' "$FM_FAKE_TMUX_CAPTURE" > "$_tmp" 2>/dev/null && mv -f "$_tmp" "$FM_FAKE_TMUX_CAPTURE"
-              rm -f "$_tmp" 2>/dev/null
-            fi
-          fi
-          ;;
-      esac
-      shift
-    done
-    exit 0 ;;
+  *) exit 0 ;;
 esac
-exit 1
 SH
-  chmod +x "$fakebin/tmux"
+  chmod +x "$fakebin/wezterm"
   printf '%s\n' "$dir"
 }
 
@@ -129,48 +81,46 @@ make_bordered_case() {
   dir="$TMP_ROOT/$name"; fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
   printf '│ > │\n' > "$dir/composer"
-  cat > "$fakebin/tmux" <<'SH'
+  # fm_wezterm_submit_core sends text then \r (Enter) via wezterm cli send-text.
+  # get-text returns composer state; send-text updates it.
+  cat > "$fakebin/wezterm" <<'SH'
 #!/usr/bin/env bash
 set -u
 COMPOSER="${FM_FAKE_COMPOSER:?FM_FAKE_COMPOSER unset}"
+[ "${1:-}" = cli ] && shift
 case "${1:-}" in
-  display-message)
-    print=0
-    for a in "$@"; do case "$a" in *cursor_y*) printf '0\n'; exit 0 ;; esac; done
-    for a in "$@"; do [ "$a" = "-p" ] && print=1; done
-    [ "$print" = 1 ] && printf 'fakepane\n'
+  get-text)
+    cat "$COMPOSER" 2>/dev/null; exit 0 ;;
+  send-text)
+    content=$(cat)
+    case "$content" in
+      $'\r')
+        # Carriage return = Enter submission
+        if [ -n "${FM_FAKE_SWALLOW:-}" ] && [ -f "$FM_FAKE_SWALLOW" ]; then
+          [ "${FM_FAKE_PERSIST_SWALLOW:-0}" = 1 ] || rm -f "$FM_FAKE_SWALLOW"
+        else
+          [ -n "${FM_FAKE_SENT:-}" ] && printf '[ENTER]\n' >> "$FM_FAKE_SENT"
+          printf '│ > │\n' > "$COMPOSER"
+        fi
+        ;;
+      *)
+        [ "${FM_FAKE_SEND_FAIL:-0}" = 1 ] && exit 1
+        [ -n "${FM_FAKE_SENT:-}" ] && printf '%s\n' "$content" >> "$FM_FAKE_SENT"
+        printf '│ > %s │\n' "$content" > "$COMPOSER"
+        ;;
+    esac
     exit 0 ;;
-  capture-pane) cat "$COMPOSER" 2>/dev/null; exit 0 ;;
-  list-windows) exit 0 ;;
-  send-keys)
-    shift
-    text=""; is_enter=0; lit=0
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        -t) shift ;;
-        -l) lit=1 ;;
-        Enter) is_enter=1 ;;
-        *) [ "$lit" = 1 ] && text="$1" ;;
-      esac
-      shift
-    done
-    if [ "$is_enter" = 1 ]; then
-      if [ -n "${FM_FAKE_SWALLOW:-}" ] && [ -f "$FM_FAKE_SWALLOW" ]; then
-        [ "${FM_FAKE_PERSIST_SWALLOW:-0}" = 1 ] || rm -f "$FM_FAKE_SWALLOW"
-      else
-        [ -n "${FM_FAKE_SENT:-}" ] && printf '[ENTER]\n' >> "$FM_FAKE_SENT"
-        printf '│ > │\n' > "$COMPOSER"
-      fi
-    elif [ "$lit" = 1 ]; then
-      [ "${FM_FAKE_SEND_FAIL:-0}" = 1 ] && exit 1
-      [ -n "${FM_FAKE_SENT:-}" ] && printf '%s\n' "$text" >> "$FM_FAKE_SENT"
-      printf '│ > %s │\n' "$text" > "$COMPOSER"
+  list)
+    if [ "${FM_FAKE_WEZTERM_PANE_ALIVE:-1}" = "1" ]; then
+      printf 'WINID\tTABID\tPANE\tWORKSPACE\tSIZE\tTITLE\tCWD\n'
+      printf '0\t0\t%s\tdefault\t80x24\t⏳ brigade\t.\n' "${FM_SUPERVISOR_TARGET:-99}"
     fi
     exit 0 ;;
+  set-tab-title|spawn|kill-pane) exit 0 ;;
 esac
-exit 1
+exit 0
 SH
-  chmod +x "$fakebin/tmux"
+  chmod +x "$fakebin/wezterm"
   printf '%s\n' "$dir"
 }
 

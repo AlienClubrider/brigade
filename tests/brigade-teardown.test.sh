@@ -36,17 +36,17 @@ make_case() {
 
   # Mocks for the post-check teardown steps. Refuse logic exits before these
   # run; the ALLOW cases need them so the script can complete cleanly.
-  cat > "$fakebin/worktrunk" <<'SH'
+  cat > "$fakebin/wt" <<'SH'
 #!/usr/bin/env bash
-# `worktrunk return --force <wt>`: succeed silently.
+# `wt remove -f -D --foreground <wt>`: succeed silently.
 exit 0
 SH
-  cat > "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/wezterm" <<'SH'
 #!/usr/bin/env bash
-# tmux kill-window etc.: succeed silently.
+# wezterm cli kill-pane etc.: succeed silently.
 exit 0
 SH
-  chmod +x "$fakebin/worktrunk" "$fakebin/tmux"
+  chmod +x "$fakebin/wt" "$fakebin/wezterm"
 
   # Bare origin so the clone has an `origin` remote and origin/HEAD.
   git init -q --bare "$case_dir/origin.git"
@@ -85,7 +85,8 @@ SH
 write_meta() {
   local case_dir=$1 mode=$2 kind=$3
   fm_write_meta "$case_dir/state/task-x1.meta" \
-    "window=brigade-task-x1" \
+    "pane=42" \
+    "tab=⏳ brigade-task-x1" \
     "worktree=$case_dir/wt" \
     "project=$case_dir/project" \
     "kind=$kind" \
@@ -142,11 +143,11 @@ test_teardown_prompts_tasks_axi_done_when_compatible() {
   local case_dir out
   case_dir=$(make_case tasks-axi-reminder)
   write_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/ticket-x1.meta"
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   add_compatible_tasks_axi "$case_dir"
 
   out=$(run_teardown "$case_dir") || fail "teardown failed with compatible tasks-axi"
-  printf '%s\n' "$out" | grep -F 'tickets-axi done ticket-x1 --pr https://github.com/example/repo/pull/7' >/dev/null \
+  printf '%s\n' "$out" | grep -F 'tasks-axi done task-x1 --pr https://github.com/example/repo/pull/7' >/dev/null \
     || fail "teardown did not prompt tasks-axi done: $out"
   printf '%s\n' "$out" | grep -F 'tickets-axi ready' >/dev/null \
     || fail "teardown did not prompt tasks-axi ready: $out"

@@ -33,7 +33,7 @@ HOME_DIR="$TMP_ROOT/main home"
 SUB="$TMP_ROOT/design-home"
 SUB_ABS=
 FAKEBIN=
-LOG="$TMP_ROOT/tmux.log"
+LOG="$TMP_ROOT/fake/wezterm.log"
 PANE="$TMP_ROOT/pane.txt"
 ALPHA_ORIGIN=
 BETA_ORIGIN=
@@ -57,7 +57,7 @@ EOF
 
   # One combined fakebin: tmux + worktrunk (spawn/send/teardown) and no-mistakes
   # (gamma initialization during seed).
-  FAKEBIN=$(make_fake_tmux "$TMP_ROOT/fake")
+  FAKEBIN=$(make_fake_wezterm "$TMP_ROOT/fake")
   make_fake_no_mistakes "$TMP_ROOT/fake" >/dev/null
 
   # A filled charter brief whose routing scope differs from the charter summary,
@@ -112,7 +112,7 @@ phase_seed() {
 phase_spawn() {
   : > "$LOG"
   PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_CONFIG_OVERRIDE="$HOME_DIR/parent-config" \
-    FM_FAKE_TMUX_LOG="$LOG" FM_FAKE_TMUX_CAPTURE="$PANE" \
+    FM_FAKE_WEZTERM_LOG="$LOG" FM_FAKE_WEZTERM_CAPTURE="$PANE" \
     "$ROOT/bin/brigade-spawn.sh" design "$SUB" codex --sous-chef >/dev/null \
     || fail "sous-chef spawn failed"
 
@@ -128,21 +128,18 @@ phase_spawn() {
   assert_grep "$SUB_ABS/data/charter.md" "$LOG" "launch did not use the persistent charter"
   assert_no_grep 'notify=' "$LOG" "sous-chef codex launch included the parent turn-end notify hook"
   assert_no_grep 'turn-ended' "$LOG" "sous-chef codex launch referenced a parent turn-ended signal"
-  assert_no_grep 'worktrunk get' "$LOG" "sous-chef spawn ran a project worktrunk get"
+  assert_no_grep 'wt switch' "$LOG" "sous-chef spawn ran a project wt switch (should only spawn a pane)"
   pass "spawn: launches in the subhome with persistent charter, records routing meta"
 }
 
 phase_send() {
   : > "$LOG"
-  # The meta window (brigade:brigade-design) must win over a foreign same-named
-  # window returned by list-windows.
-  PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_FAKE_TMUX_WINDOW="other-session:brigade-design" \
-    FM_FAKE_TMUX_LOG="$LOG" FM_FAKE_TMUX_CAPTURE="$PANE" \
+  PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" \
+    FM_FAKE_WEZTERM_LOG="$LOG" FM_FAKE_WEZTERM_CAPTURE="$PANE" \
     "$ROOT/bin/brigade-send.sh" brigade-design 'route this work' >/dev/null 2>&1 \
-    || fail "brigade-send failed for a bare brigade window with home metadata"
-  assert_grep 'send-keys -t brigade:brigade-design -l route this work' "$LOG" "send did not use the window recorded in this home's meta"
-  assert_no_grep 'send-keys -t other-session:brigade-design' "$LOG" "send targeted a foreign same-named window"
-  pass "send: a bare brigade-<id> routes to the window recorded in this home's meta"
+    || fail "brigade-send failed for a bare brigade-<id> with home metadata"
+  assert_grep 'route this work' "$LOG" "send did not transmit the message text"
+  pass "send: a bare brigade-<id> routes to the pane recorded in this home's meta"
 }
 
 phase_handoff() {
@@ -187,19 +184,19 @@ phase_recovery() {
   # Simulate a restart: drop the live meta, then respawn from the registry +
   # persistent home (no explicit home argument).
   rm -f "$HOME_DIR/state/design.meta"
-  PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_FAKE_TMUX_LOG="$LOG" FM_FAKE_TMUX_CAPTURE="$PANE" \
+  PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_FAKE_WEZTERM_LOG="$LOG" FM_FAKE_WEZTERM_CAPTURE="$PANE" \
     "$ROOT/bin/brigade-spawn.sh" design "echo relaunch" --sous-chef >/dev/null 2>&1 \
     || fail "recovery respawn failed"
   local meta="$HOME_DIR/state/design.meta"
   assert_grep "home=$SUB_ABS" "$meta" "respawn did not preserve the persistent home from the registry"
   assert_grep 'projects=alpha, beta, gamma' "$meta" "respawn did not preserve the project list from the registry"
-  assert_grep 'window=brigade:brigade-design' "$meta" "respawn did not reconstruct the direct-report window"
+  assert_grep 'pane=' "$meta" "respawn did not record a pane id in meta"
   pass "recovery: respawns from the durable registry and persistent home"
 }
 
 phase_teardown() {
   : > "$LOG"
-  PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_FAKE_TMUX_LOG="$LOG" FM_FAKE_TMUX_CAPTURE="$PANE" \
+  PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_FAKE_WEZTERM_LOG="$LOG" FM_FAKE_WEZTERM_CAPTURE="$PANE" \
     "$ROOT/bin/brigade-teardown.sh" design >/dev/null 2>&1 \
     || fail "teardown failed for the empty sous-chef home"
   assert_absent "$SUB" "teardown did not remove the retired sous-chef home"

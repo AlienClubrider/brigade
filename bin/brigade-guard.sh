@@ -93,7 +93,7 @@ if [ "$watcher_fresh" = false ]; then
   {
     printf '●%s\n' "$rule"
     printf '●  WATCHER DOWN - SUPERVISION IS OFF\n'
-    printf '●  %s ticket(s) in flight, but no watcher has a fresh beacon (last beat: %s, grace %ss).\n' "$in_flight" "$beacon_desc" "$GRACE"
+    printf '●  %s task(s) in flight, but no watcher has a fresh beacon (last beat: %s, grace %ss).\n' "$in_flight" "$beacon_desc" "$GRACE"
     printf '●  Trust bin/brigade-watch-arm.sh for the true state: it confirms a live watcher and a fresh beacon, or fails loudly.\n'
     printf '●  %s\n' "$fix"
     printf '●%s\n' "$rule"

@@ -76,14 +76,14 @@ test_stale_enqueue_before_suppressor() {
   out="$dir/watch.out"
   drain_out="$dir/drain.out"
   capture_file="$dir/pane.txt"
-  window="test:brigade-stale"
+  window="42"
   printf 'idle prompt' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/stale.meta"
+  printf 'pane=%s\nkind=ship\n' "$window" > "$state/stale.meta"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "idle prompt")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$capture_file" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   wait_for_exit "$!" 40 || fail "watcher did not exit for stale pane"
   grep -Fx "stale: $window" "$out" >/dev/null || fail "watcher did not print stale wake"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after stale wake failed"

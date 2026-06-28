@@ -91,23 +91,24 @@ test_stale_terminal_escalates() {
   dir=$(make_supercase stale-terminal)
   state="$dir/state"
   printf 'done: ready in branch fm/t1\n' > "$state/fin-t5.status"
-  out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:brigade-fin-t5" "$state")
+  printf 'pane=42\ntab=⏳ brigade-fin-t5\n' > "$state/fin-t5.meta"
+  out=$(FM_STATE_OVERRIDE="$state" classify_stale "42" "$state")
   case "$out" in escalate\|*) ;; *) fail "terminal stale did not escalate: $out" ;; esac
   pass "stale + terminal status escalates immediately"
 }
 
 test_housekeeping_persistent_stale_escalates() {
-  local dir state fakebin win pane key
+  local dir state fakebin pane key
   dir=$(make_supercase stale-persistent)
   state="$dir/state"
   fakebin="$dir/fakebin"
-  win="sess:brigade-pers-w5"
   pane="$dir/pane.txt"
   printf 'working\n' > "$state/pers-w5.status"
+  printf 'pane=42\ntab=⏳ brigade-pers-w5\n' > "$state/pers-w5.meta"
   printf 'idle prompt $\n' > "$pane"
   key=$(printf '%s' "pers-w5" | tr ':/.' '___')
   echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$pane" \
     FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
   [ -s "$state/.subsuper-escalations" ] || fail "persistent stale was not escalated"
   [ ! -e "$state/.subsuper-stale-$key" ] || fail "stale marker not cleared after escalation"
@@ -115,17 +116,17 @@ test_housekeeping_persistent_stale_escalates() {
 }
 
 test_housekeeping_resumed_stale_cleared() {
-  local dir state fakebin win pane key
+  local dir state fakebin pane key
   dir=$(make_supercase stale-resumed)
   state="$dir/state"
   fakebin="$dir/fakebin"
-  win="sess:brigade-res-w6"
   pane="$dir/pane.txt"
   printf 'working\n' > "$state/res-w6.status"
+  printf 'pane=43\ntab=⏳ brigade-res-w6\n' > "$state/res-w6.meta"
   printf 'Working...\n' > "$pane"
   key=$(printf '%s' "res-w6" | tr ':/.' '___')
   echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$pane" \
     FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
   [ -e "$state/.subsuper-stale-$key" ] && fail "resumed stale marker was not cleared"
   [ -s "$state/.subsuper-escalations" ] && fail "resumed stale was escalated"
@@ -142,8 +143,9 @@ test_escalate_batches_into_one_digest() {
   escalate_add "$state" "event A: done: PR 1"
   escalate_add "$state" "event B: done: PR 2"
   afk_enter "$state"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
-    FM_FAKE_TMUX_CAPTURE="$capture" FM_ESCALATE_BATCH_SECS=0 escalate_flush "$state" \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_PANE_ALIVE=1 FM_FAKE_SENT="$sent" \
+    FM_FAKE_WEZTERM_CAPTURE="$capture" FM_ESCALATE_BATCH_SECS=0 FM_SUPERVISOR_TARGET=99 \
+    escalate_flush "$state" \
     || fail "escalate_flush failed"
   grep -F "event A" "$sent" >/dev/null || fail "batch digest missing event A"
   grep -F "event B" "$sent" >/dev/null || fail "batch digest missing event B"
@@ -167,9 +169,9 @@ test_escalate_batch_age_uses_first_append() {
   escalate_add "$state" "event B: done: PR 2"
   echo $(( $(date +%s) - 100 )) > "$state/.subsuper-escalations.since"
   afk_enter "$state"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
-    FM_FAKE_TMUX_CAPTURE="$capture" FM_ESCALATE_BATCH_SECS=90 FM_HOUSEKEEPING_TICK=0 \
-    housekeeping "$state"
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_PANE_ALIVE=1 FM_FAKE_SENT="$sent" \
+    FM_FAKE_WEZTERM_CAPTURE="$capture" FM_ESCALATE_BATCH_SECS=90 FM_HOUSEKEEPING_TICK=0 \
+    FM_SUPERVISOR_TARGET=99 housekeeping "$state"
   grep -F 'event A: done: PR 1 | event B: done: PR 2' "$sent" >/dev/null \
     || fail "backdated batch did not flush as a joined digest (max-delay measured from last append)"
   [ -s "$state/.subsuper-escalations" ] && fail "escalation buffer not cleared after backdated flush"
@@ -228,14 +230,14 @@ test_is_wake_reason_distinguishes_status_stdout() {
 }
 
 test_terminal_stale_escalate_leaves_no_marker() {
-  local dir state win key
+  local dir state key
   dir=$(make_supercase stale-terminal-nomarker)
   state="$dir/state"
-  win="sess:brigade-fin-n7"
   printf 'done: PR https://x/y/pull/7\n' > "$state/fin-n7.status"
+  printf 'pane=44\ntab=⏳ brigade-fin-n7\n' > "$state/fin-n7.meta"
   key=$(printf '%s' "fin-n7" | tr ':/.' '___')
   echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
-  FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  FM_STATE_OVERRIDE="$state" handle_wake "stale: 44" "$state"
   [ -s "$state/.subsuper-escalations" ] || fail "terminal stale was not escalated"
   [ ! -e "$state/.subsuper-stale-$key" ] || fail "terminal stale left a persistence marker (housekeeping would re-escalate)"
   : > "$state/.subsuper-escalations"
@@ -282,8 +284,8 @@ test_afk_absent_daemon_does_not_inject() {
   capture="$dir/pane.txt"; : > "$capture"
   escalate_add "$state" "done: PR 1"
   # afk flag deliberately NOT set
-  if PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
-    FM_FAKE_TMUX_CAPTURE="$capture" FM_ESCALATE_BATCH_SECS=0 escalate_flush "$state"; then
+  if PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_PANE_ALIVE=1 FM_FAKE_SENT="$sent" \
+    FM_FAKE_WEZTERM_CAPTURE="$capture" FM_ESCALATE_BATCH_SECS=0 escalate_flush "$state"; then
     fail "escalate_flush succeeded while afk inactive"
   fi
   [ -s "$sent" ] && fail "daemon injected while afk inactive"
@@ -302,8 +304,8 @@ test_busy_guard_defers_when_supervisor_busy() {
   printf 'esc to interrupt\n' > "$capture"
   escalate_add "$state" "done: PR 1"
   afk_enter "$state"
-  if PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
-    FM_FAKE_TMUX_CAPTURE="$capture" FM_ESCALATE_BATCH_SECS=0 escalate_flush "$state"; then
+  if PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_PANE_ALIVE=1 FM_FAKE_SENT="$sent" \
+    FM_FAKE_WEZTERM_CAPTURE="$capture" FM_ESCALATE_BATCH_SECS=0 escalate_flush "$state"; then
     fail "escalate_flush should defer when supervisor pane busy"
   fi
   [ -s "$sent" ] && fail "daemon injected into a busy pane"
@@ -384,7 +386,7 @@ test_pane_input_pending_detects_partial_input() {
   capture="$dir/pane.txt"
   # Line 3 (cursor_y=2) has human's partial text (no Enter) → pending.
   printf 'line one\nline two\nhuman draft text\n' > "$capture"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=2 \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$capture" \
     pane_input_pending "fakepane" \
     || fail "pane_input_pending should detect non-empty composer (human text)"
   pass "pane_input_pending detects partial input on the cursor line"
@@ -396,12 +398,12 @@ test_pane_input_pending_blank_is_not_pending() {
   state="$dir/state"
   fakebin="$dir/fakebin"
   capture="$dir/pane.txt"
-  # Cursor line (line 3, cursor_y=2) is blank → not pending.
-  printf 'some output\nmore output\n\n' > "$capture"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=2 \
+  # Last non-blank line is an idle prompt → not pending.
+  printf 'some output\n$ \n' > "$capture"
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$capture" \
     pane_input_pending "fakepane" \
-    && fail "blank composer line falsely detected as pending"
-  pass "pane_input_pending: blank cursor line is not pending"
+    && fail "idle prompt falsely detected as pending"
+  pass "pane_input_pending: idle prompt as last line is not pending"
 }
 
 test_pane_input_pending_idle_prompt_not_pending() {
@@ -412,12 +414,12 @@ test_pane_input_pending_idle_prompt_not_pending() {
   capture="$dir/pane.txt"
   # Cursor line (line 3, cursor_y=2) is a bare prompt ($) → idle → not pending.
   printf 'output\noutput\n$ \n' > "$capture"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=2 \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$capture" \
     pane_input_pending "fakepane" \
     && fail "bare prompt falsely detected as pending"
   # Bare > prompt also idle.
   printf 'output\noutput\n> \n' > "$capture"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=2 \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$capture" \
     pane_input_pending "fakepane" \
     && fail "bare > prompt falsely detected as pending"
   pass "pane_input_pending: bare prompts are not pending (idle)"
@@ -430,7 +432,7 @@ test_pane_input_pending_honors_idle_override_after_border_strip() {
   fakebin="$dir/fakebin"
   capture="$dir/pane.txt"
   printf '│ custom idle> │\n' > "$capture"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=0 \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$capture" \
     FM_COMPOSER_IDLE_RE='^custom idle>$' pane_input_pending "fakepane" \
     && fail "FM_COMPOSER_IDLE_RE was not applied after border stripping"
   pass "pane_input_pending honors FM_COMPOSER_IDLE_RE after border stripping"
@@ -462,13 +464,14 @@ test_classify_stale_dedup_against_signal() {
   dir=$(make_supercase stale-dedup)
   state="$dir/state"
   printf 'done: PR https://x/y/pull/10\n' > "$state/dup-s10.status"
+  printf 'pane=45\ntab=⏳ brigade-dup-s10\n' > "$state/dup-s10.meta"
   key=$(printf '%s' "dup-s10" | tr ':/.' '___')
   printf 'done: PR https://x/y/pull/10' > "$state/.subsuper-seen-status-$key"
-  out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:brigade-dup-s10" "$state")
+  out=$(FM_STATE_OVERRIDE="$state" classify_stale "45" "$state")
   case "$out" in self\|*) ;; *) fail "stale not deduped against signal: $out" ;; esac
   # Without the seen marker, it should escalate.
   rm -f "$state/.subsuper-seen-status-$key"
-  out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:brigade-dup-s10" "$state")
+  out=$(FM_STATE_OVERRIDE="$state" classify_stale "45" "$state")
   case "$out" in escalate\|*) ;; *) fail "stale should escalate when not seen: $out" ;; esac
   pass "classify_stale dedupes against the signal path seen marker"
 }
@@ -486,7 +489,7 @@ test_pane_input_pending_bordered_idle_not_pending() {
     "│ >  │" \
     "│                                              │"; do
     printf '%s\n' "$line" > "$capture"
-    if PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=0 \
+    if PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$capture" \
       pane_input_pending "fakepane"; then
       fail "bordered idle composer falsely detected as pending: <$line>"
     fi
@@ -502,7 +505,7 @@ test_pane_input_pending_bordered_with_text_is_pending() {
   dir=$(make_supercase pending-bordered-text)
   state="$dir/state"; fakebin="$dir/fakebin"; capture="$dir/pane.txt"
   printf '%s\n' "│ > fix findings 1 and 3, skip 2               │" > "$capture"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=0 \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_CAPTURE="$capture" \
     pane_input_pending "fakepane" \
     || fail "real text inside a bordered composer was not detected as pending"
   pass "pane_input_pending: text inside a bordered composer is still pending"
@@ -516,7 +519,7 @@ test_submit_ack_confirms_on_bordered_empty_composer() {
   dir=$(make_bordered_case ack-bordered)
   fakebin="$dir/fakebin"; sent="$dir/sent.log"; : > "$sent"
   verdict=$(PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
-    fm_tmux_submit_core "win" "the digest" 3 0.05 0.05)
+    fm_wezterm_submit_core "win" "the digest" 3 0.05 0.05)
   [ "$verdict" = empty ] || fail "submit-ACK did not confirm on a bordered-empty composer: $verdict"
   [ "$(grep -cv '\[ENTER\]' "$sent")" -eq 1 ] || fail "digest typed more than once (retype)"
   [ "$(grep -c '\[ENTER\]' "$sent")" -eq 1 ] || fail "expected exactly one submitted Enter"
@@ -533,7 +536,7 @@ test_submit_ack_reports_pending_on_persistent_swallow() {
   touch "$dir/.swallow"
   verdict=$(PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
     FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 \
-    fm_tmux_submit_core "win" "the digest" 3 0.05 0.05)
+    fm_wezterm_submit_core "win" "the digest" 3 0.05 0.05)
   [ "$verdict" = pending ] || fail "persistent swallow not reported as pending: $verdict"
   [ "$(grep -cv '\[ENTER\]' "$sent")" -eq 1 ] || fail "digest retyped on swallow (expected type-once)"
   pass "submit-ACK reports pending on a persistently swallowed Enter (type-once)"
@@ -551,7 +554,7 @@ test_max_defer_empty_swallow_types_once_and_alarms() {
   afk_enter "$state"
   PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
     FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 FM_INJECT_CONFIRM_SLEEP=0.05 \
-    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 housekeeping "$state"
+    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_SUPERVISOR_TARGET=99 housekeeping "$state"
   [ "$(grep -c 'Supervisor escalate' "$sent" 2>/dev/null || true)" -eq 1 ] \
     || fail "max-defer typed the digest more than once"
   [ -s "$state/.subsuper-inject-wedged" ] \
@@ -572,7 +575,7 @@ test_max_defer_flushes_empty_idle_pane() {
   afk_enter "$state"
   PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
     FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
-    housekeeping "$state"
+    FM_SUPERVISOR_TARGET=99 housekeeping "$state"
   [ ! -s "$state/.subsuper-escalations" ] || fail "buffer not cleared after a recovered max-defer flush"
   [ ! -e "$state/.subsuper-inject-wedged" ] || fail "wedge alarm left behind after a successful max-defer flush"
   pass "max-defer flushes and clears the buffer on an empty bordered pane"
@@ -606,7 +609,7 @@ test_normal_flush_clears_stale_wedge_marker() {
   escalate_add "$state" "done: PR https://x/y/pull/2"
   afk_enter "$state"
   PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
-    FM_INJECT_CONFIRM_SLEEP=0.05 escalate_flush "$state" \
+    FM_INJECT_CONFIRM_SLEEP=0.05 FM_SUPERVISOR_TARGET=99 escalate_flush "$state" \
     || fail "normal escalate_flush failed"
   [ ! -s "$state/.subsuper-escalations" ] || fail "buffer not cleared after normal flush"
   [ ! -e "$state/.subsuper-inject-wedged" ] || fail "wedge marker survived successful normal flush"
@@ -622,8 +625,8 @@ test_below_max_defer_does_nothing() {
   escalate_add "$state" "needs-decision: pick A"
   date +%s > "$state/.subsuper-escalations.since"   # just now
   afk_enter "$state"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
-    FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=0 \
+  PATH="$fakebin:$PATH" FM_FAKE_WEZTERM_PANE_ALIVE=1 FM_FAKE_SENT="$sent" \
+    FM_FAKE_WEZTERM_CAPTURE="$capture" \
     FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=300 housekeeping "$state"
   [ ! -s "$sent" ] || fail "injected before MAX_DEFER elapsed"
   [ ! -e "$state/.subsuper-inject-wedged" ] || fail "wedge alarm fired before MAX_DEFER"
@@ -656,14 +659,14 @@ test_fm_send_exits_nonzero_on_confirmed_swallow() {
   fakebin="$dir/fakebin"; err="$dir/send.err"
   # Clean submit -> exit 0.
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
-    FM_SEND_SLEEP=0.05 "$ROOT/bin/brigade-send.sh" sess:win 'route this work' >/dev/null 2>"$err" \
+    FM_SEND_SLEEP=0.05 "$ROOT/bin/brigade-send.sh" 99 'route this work' >/dev/null 2>"$err" \
     || fail "brigade-send exited non-zero on a clean submit: $(cat "$err")"
   # Persistent swallow -> exit non-zero with a clear message.
   printf '│ > │\n' > "$dir/composer"
   touch "$dir/.swallow"
   if PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
     FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 FM_SEND_SLEEP=0.05 \
-    "$ROOT/bin/brigade-send.sh" sess:win 'fix findings 1 and 3, skip 2' >/dev/null 2>"$err"; then
+    "$ROOT/bin/brigade-send.sh" 99 'fix findings 1 and 3, skip 2' >/dev/null 2>"$err"; then
     fail "brigade-send exited zero despite a swallowed Enter (silent unsubmitted instruction)"
   fi
   grep -F 'not submitted' "$err" >/dev/null || fail "brigade-send did not explain the swallowed submit: $(cat "$err")"
@@ -676,8 +679,8 @@ test_fm_send_exits_nonzero_on_initial_send_failure() {
   fakebin="$dir/fakebin"; err="$dir/send.err"
   if PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
     FM_FAKE_SEND_FAIL=1 FM_SEND_SLEEP=0.05 \
-    "$ROOT/bin/brigade-send.sh" sess:win 'route this work' >/dev/null 2>"$err"; then
-    fail "brigade-send exited zero despite initial tmux send-keys failure"
+    "$ROOT/bin/brigade-send.sh" 99 'route this work' >/dev/null 2>"$err"; then
+    fail "brigade-send exited zero despite initial wezterm send-text failure"
   fi
   grep -F 'text not sent' "$err" >/dev/null || fail "brigade-send did not explain initial send failure: $(cat "$err")"
   pass "brigade-send exits non-zero when initial text send fails"

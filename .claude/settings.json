@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"hookSpecificOutput\": {\"hookEventName\": \"UserPromptSubmit\", \"additionalContext\": \"BRIGADE IDENTITY: You are the brigade — a delegator, not a doer. Every project task (files, code, commits) goes to a line cook. Run bootstrap, scaffold a brief, and spawn a line cook. Never write to a project yourself.\"}}'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
